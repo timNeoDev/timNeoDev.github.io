@@ -1,11 +1,10 @@
 // ===== Тема (тёмная/светлая) =====
 const root = document.documentElement;
-const themeToggle = document.getElementById('themeToggle');
 try {
   const saved = localStorage.getItem('theme');
   if (saved) root.dataset.theme = saved;
 } catch (e) {}
-themeToggle.addEventListener('click', () => {
+document.getElementById('themeToggle').addEventListener('click', () => {
   root.dataset.theme = root.dataset.theme === 'light' ? 'dark' : 'light';
   try { localStorage.setItem('theme', root.dataset.theme); } catch (e) {}
 });
@@ -22,6 +21,12 @@ nav.querySelectorAll('a').forEach(a => a.addEventListener('click', () => {
   nav.classList.remove('is-open');
 }));
 
+// ===== Шапка при скролле =====
+const header = document.getElementById('header');
+const onScroll = () => header.classList.toggle('is-scrolled', window.scrollY > 10);
+window.addEventListener('scroll', onScroll, { passive: true });
+onScroll();
+
 // ===== Появление блоков при скролле =====
 const observer = new IntersectionObserver(entries => {
   entries.forEach(e => {
@@ -30,8 +35,68 @@ const observer = new IntersectionObserver(entries => {
       observer.unobserve(e.target);
     }
   });
-}, { threshold: 0.12 });
+}, { threshold: 0.1 });
 document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+// ===== Подсветка карточек за курсором =====
+document.querySelectorAll('.spotlight').forEach(el => {
+  el.addEventListener('pointermove', e => {
+    const r = el.getBoundingClientRect();
+    el.style.setProperty('--mx', `${e.clientX - r.left}px`);
+    el.style.setProperty('--my', `${e.clientY - r.top}px`);
+  });
+});
+
+// ===== Печатающийся код в редакторе =====
+// Каждая строка — массив [класс, текст]; класс '' — обычный текст
+const CODE = [
+  [['c', '# Бот онлайн-записи · aiogram 3']],
+  [['k', 'from'], ['', ' aiogram '], ['k', 'import'], ['', ' Router, F']],
+  [],
+  [['', 'router = '], ['f', 'Router'], ['', '()']],
+  [],
+  [['d', '@router.message'], ['', '(F.text == '], ['s', '"📅 Записаться"'], ['', ')']],
+  [['k', 'async def'], ['f', ' booking_start'], ['', '(message, state):']],
+  [['', '    '], ['k', 'await'], ['', ' state.'], ['f', 'set_state'], ['', '(Booking.service)']],
+  [['', '    '], ['k', 'await'], ['', ' message.'], ['f', 'answer'], ['', '(']],
+  [['', '        '], ['s', '"Выберите услугу:"'], ['', ',']],
+  [['', '        reply_markup=kb.'], ['f', 'services_kb'], ['', '(),']],
+  [['', '    )']],
+];
+
+const codeEl = document.getElementById('code');
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function renderCode(lineIdx, charIdx) {
+  let html = '';
+  for (let i = 0; i <= lineIdx && i < CODE.length; i++) {
+    let left = i < lineIdx ? Infinity : charIdx;
+    for (const [cls, text] of CODE[i]) {
+      if (left <= 0) break;
+      const part = escapeHtml([...text].slice(0, left).join(''));
+      left -= [...text].length;
+      html += cls ? `<span class="${cls}">${part}</span>` : part;
+    }
+    if (i < lineIdx) html += '\n';
+  }
+  codeEl.innerHTML = html + '<span class="caret"></span>';
+}
+
+if (reducedMotion) {
+  renderCode(CODE.length - 1, Infinity);
+} else {
+  let line = 0, ch = 0;
+  (function type() {
+    const lineLen = (CODE[line] || []).reduce((n, [, t]) => n + [...t].length, 0);
+    renderCode(line, ch);
+    if (ch < lineLen) { ch++; setTimeout(type, 28); return; }
+    if (line < CODE.length - 1) { line++; ch = 0; setTimeout(type, 120); return; }
+    setTimeout(() => { line = 0; ch = 0; type(); }, 4000);
+  })();
+}
 
 // ===== Анимированная демо-переписка с ботом =====
 const chat = document.getElementById('chat');
