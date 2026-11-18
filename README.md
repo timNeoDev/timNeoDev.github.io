@@ -13,5 +13,8 @@
 Бот для записи клиентов в барбершоп: выбор услуги, даты и свободного времени, отмена записи, уведомления администратору. Python, aiogram 3, SQLite.
 **Демо:** [@zayavki_demo_pro_bot](https://t.me/zayavki_demo_pro_bot)
 
+### 🤖 [ИИ-консультант кофейни на Claude](projects/ai-assistant-bot)
+Telegram-бот, который отвечает гостям как живой бариста: меню, цены, советы по напиткам, бронирование столика. Ответ печатается в реальном времени, бот помнит контекст и не выдумывает факты. Python, aiogram 3, Claude API, SQLite.
+
 ## Стек
-HTML · CSS · JavaScript · Python · aiogram 3 · SQLite · Git
+HTML · CSS · JavaScript · Python · aiogram 3 · Claude API · SQLite · Git

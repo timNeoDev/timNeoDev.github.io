@@ -160,6 +160,8 @@ img { display: block; max-width: 100%; }
 .msg--bot { background: #182533; align-self: flex-start; border-bottom-left-radius: 4px; }
 .msg--user { background: #2b5278; align-self: flex-end; border-bottom-right-radius: 4px; }
 .msg__btns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 8px; }
+.msg__btns--single { grid-template-columns: 1fr; }
+.phone__avatar--ai { background: linear-gradient(135deg, #c2703a, #7c5cff); }
 .msg__btns span { background: #22303f; text-align: center; padding: 5px; border-radius: 8px; font-size: 12px; }
 @keyframes pop { from { opacity: 0; transform: translateY(8px) scale(.97); } }
 

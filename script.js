@@ -98,26 +98,35 @@ if (reducedMotion) {
   })();
 }
 
-// ===== Анимированная демо-переписка с ботом =====
-const chat = document.getElementById('chat');
-const SCRIPT = [
-  { from: 'user', text: '📅 Записаться' },
-  { from: 'bot', text: 'Выберите услугу:', btns: ['Стрижка', 'Борода', 'Комплекс'] },
-  { from: 'user', text: 'Стрижка + борода' },
-  { from: 'bot', text: 'Выберите дату:', btns: ['Сегодня', 'Чт 20.11', 'Пт 21.11'] },
-  { from: 'user', text: 'Пт 21.11' },
-  { from: 'bot', text: 'Выберите время:', btns: ['11:00', '14:00', '17:00'] },
-  { from: 'user', text: '17:00' },
-  { from: 'bot', text: '✅ Вы записаны!\nСтрижка + борода\nПт, 21.11 в 17:00' },
-];
+// ===== Анимированные демо-переписки с ботами =====
+const CHAT_SCRIPTS = {
+  booking: [
+    { from: 'user', text: '📅 Записаться' },
+    { from: 'bot', text: 'Выберите услугу:', btns: ['Стрижка', 'Борода', 'Комплекс'] },
+    { from: 'user', text: 'Стрижка + борода' },
+    { from: 'bot', text: 'Выберите дату:', btns: ['Сегодня', 'Чт 20.11', 'Пт 21.11'] },
+    { from: 'user', text: 'Пт 21.11' },
+    { from: 'bot', text: 'Выберите время:', btns: ['11:00', '14:00', '17:00'] },
+    { from: 'user', text: '17:00' },
+    { from: 'bot', text: '✅ Вы записаны!\nСтрижка + борода\nПт, 21.11 в 17:00' },
+  ],
+  ai: [
+    { from: 'user', text: 'Что взять, если не люблю горький кофе?' },
+    { from: 'bot', text: 'Попробуйте раф лаванда: он сливочный и сладкий, горечи почти нет. А если хочется холодного — колд брю, он мягкий и сладковатый ☕' },
+    { from: 'user', text: 'А можно без лактозы?' },
+    { from: 'bot', text: 'Конечно! Любой напиток сделаем на овсяном, миндальном или кокосовом молоке, +50 ₽.' },
+    { from: 'user', text: 'Хочу столик на вечер' },
+    { from: 'bot', text: 'С радостью! Нажмите кнопку ниже — администратор перезвонит и подтвердит бронь.', btns: ['📅 Забронировать столик'] },
+  ],
+};
 
-function addMessage({ from, text, btns }) {
+function addMessage(chat, { from, text, btns }) {
   const el = document.createElement('div');
   el.className = `msg msg--${from}`;
   el.textContent = text;
   if (btns) {
     const wrap = document.createElement('div');
-    wrap.className = 'msg__btns';
+    wrap.className = btns.length === 1 ? 'msg__btns msg__btns--single' : 'msg__btns';
     btns.forEach(b => {
       const s = document.createElement('span');
       s.textContent = b;
@@ -131,20 +140,23 @@ function addMessage({ from, text, btns }) {
   }
 }
 
-let step = 0;
-function playChat() {
-  if (step === SCRIPT.length) {
-    setTimeout(() => { chat.innerHTML = ''; step = 0; playChat(); }, 3500);
+function playChat(chat, script, step = 0) {
+  if (step === script.length) {
+    setTimeout(() => { chat.innerHTML = ''; playChat(chat, script); }, 3500);
     return;
   }
-  addMessage(SCRIPT[step++]);
-  setTimeout(playChat, 1200);
+  addMessage(chat, script[step]);
+  // Длинные ответы «печатаются» дольше
+  const delay = script[step].from === 'bot' ? 900 + script[step].text.length * 12 : 1200;
+  setTimeout(() => playChat(chat, script, step + 1), delay);
 }
 
-const chatObserver = new IntersectionObserver(([entry]) => {
-  if (entry.isIntersecting) {
-    playChat();
-    chatObserver.disconnect();
-  }
+const chatObserver = new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      playChat(entry.target, CHAT_SCRIPTS[entry.target.dataset.chat]);
+      chatObserver.unobserve(entry.target);
+    }
+  });
 });
-chatObserver.observe(chat);
+document.querySelectorAll('.chat[data-chat]').forEach(chat => chatObserver.observe(chat));

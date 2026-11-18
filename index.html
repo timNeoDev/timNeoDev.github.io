@@ -122,7 +122,7 @@
               <div class="phone__avatar">Б</div>
               <div><b>Барбершоп «Борода»</b><small>бот</small></div>
             </div>
-            <div class="chat" id="chat"></div>
+            <div class="chat" data-chat="booking"></div>
           </div>
         </div>
         <div class="project__info">
@@ -139,6 +139,34 @@
           <div class="project__links">
             <a href="https://t.me/zayavki_demo_pro_bot" target="_blank" rel="noopener" class="btn btn--small">Попробовать бота ↗</a>
             <a href="https://github.com/timNeoDev/timNeoDev.github.io/tree/main/projects/booking-bot" target="_blank" rel="noopener" class="btn btn--small btn--ghost">Код на GitHub</a>
+          </div>
+        </div>
+      </article>
+
+      <article class="project spotlight reveal">
+        <div class="project__preview">
+          <div class="phone">
+            <div class="phone__notch"></div>
+            <div class="phone__head">
+              <div class="phone__avatar phone__avatar--ai">З</div>
+              <div><b>Кофейня «Зерно»</b><small>ИИ-консультант · онлайн</small></div>
+            </div>
+            <div class="chat" data-chat="ai"></div>
+          </div>
+        </div>
+        <div class="project__info">
+          <p class="project__type">Telegram-бот · ИИ · кофейня</p>
+          <h3>ИИ-консультант на Claude</h3>
+          <p>Бот отвечает гостям кофейни как живой бариста: знает меню, цены и условия, советует напитки под вкус и сам предлагает забронировать столик. Работает на Claude API от Anthropic.</p>
+          <ul class="checklist">
+            <li>Ответ печатается в реальном времени, как в ChatGPT</li>
+            <li>Отвечает только по базе знаний — не выдумывает цены</li>
+            <li>Помнит контекст диалога и понимает уточнения</li>
+            <li>Кэширование и дневные лимиты держат расходы под контролем</li>
+          </ul>
+          <ul class="tags"><li>Python</li><li>aiogram 3</li><li>Claude API</li><li>SQLite</li></ul>
+          <div class="project__links">
+            <a href="https://github.com/timNeoDev/timNeoDev.github.io/tree/main/projects/ai-assistant-bot" target="_blank" rel="noopener" class="btn btn--small">Код на GitHub ↗</a>
           </div>
         </div>
       </article>
@@ -182,6 +210,7 @@
           <p class="card__desc">Запись клиентов, приём заявок, каталог, рассылки и уведомления.</p>
           <ul class="checklist checklist--small">
             <li>Удобные кнопки и меню</li>
+            <li>ИИ-ответы на Claude — по желанию</li>
             <li>База данных</li>
             <li>Уведомления администратору</li>
             <li>Запуск на сервере</li>
