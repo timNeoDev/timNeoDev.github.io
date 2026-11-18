@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Тим — сайты и Telegram-боты</title>
+  <meta name="description" content="Разработка сайтов, лендингов и Telegram-ботов под ключ.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="bg-glow" aria-hidden="true"></div>
+
+  <header class="header">
+    <div class="container header__inner">
+      <a href="#" class="logo">&lt;TimNeoDev /&gt;</a>
+      <nav class="nav" id="nav">
+        <a href="#projects">Проекты</a>
+        <a href="#services">Услуги</a>
+        <a href="#process">Как работаю</a>
+        <a href="#contact">Контакты</a>
+      </nav>
+      <button class="theme-toggle" id="themeToggle" aria-label="Сменить тему">◐</button>
+      <button class="burger" id="burger" aria-label="Меню"><span></span><span></span></button>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero container">
+      <p class="hero__status"><span class="dot"></span>Открыт для новых проектов</p>
+      <h1>Делаю <span class="gradient">сайты</span> и <span class="gradient">Telegram-ботов</span>, которые приносят клиентов</h1>
+      <p class="hero__lead">Привет! Я <b>Тим</b> — веб-разработчик. Делаю лендинги, сайты-визитки и Telegram-ботов для малого бизнеса: онлайн-запись, приём заявок, автоматизация рутины. Пишу аккуратный код, соблюдаю сроки и всегда на связи.</p>
+      <div class="hero__actions">
+        <a href="#projects" class="btn">Смотреть работы</a>
+        <a href="https://t.me/timneodev" class="btn btn--ghost" target="_blank" rel="noopener">Написать в Telegram</a>
+      </div>
+      <ul class="tech">
+        <li>HTML / CSS</li><li>JavaScript</li><li>Python</li><li>aiogram 3</li><li>SQLite</li><li>Адаптивная вёрстка</li><li>Git</li>
+      </ul>
+    </section>
+
+    <section class="section container" id="projects">
+      <h2 class="section__title"><span class="mono">01.</span> Проекты</h2>
+
+      <article class="project reveal">
+        <div class="project__preview project__preview--site">
+          <div class="browser">
+            <div class="browser__bar"><i></i><i></i><i></i><span>zerno-coffee.ru</span></div>
+            <div class="browser__screen">
+              <iframe src="projects/coffee-landing/index.html" title="Превью лендинга кофейни" loading="lazy" tabindex="-1"></iframe>
+            </div>
+          </div>
+        </div>
+        <div class="project__info">
+          <p class="project__type">Лендинг</p>
+          <h3>Кофейня «Зерно»</h3>
+          <p>Продающий одностраничный сайт для кофейни: меню с фильтрацией по категориям, слайдер отзывов, форма бронирования столика с валидацией и маской телефона.</p>
+          <ul class="project__features">
+            <li>Адаптив под телефоны, планшеты и ПК</li>
+            <li>Анимации появления и счётчики</li>
+            <li>Меню генерируется из данных — легко редактировать</li>
+            <li>Чистый JS, без библиотек: быстрая загрузка</li>
+          </ul>
+          <ul class="tags"><li>HTML</li><li>CSS Grid</li><li>JavaScript</li></ul>
+          <div class="project__links">
+            <a href="projects/coffee-landing/index.html" target="_blank" class="link">Открыть сайт ↗</a>
+            <a href="https://github.com/timNeoDev/timNeoDev.github.io/tree/main/projects/coffee-landing" target="_blank" rel="noopener" class="link">GitHub ↗</a>
+          </div>
+        </div>
+      </article>
+
+      <article class="project project--reverse reveal">
+        <div class="project__preview">
+          <div class="phone">
+            <div class="phone__head">
+              <div class="phone__avatar">Б</div>
+              <div><b>Барбершоп «Борода»</b><small>бот</small></div>
+            </div>
+            <div class="chat" id="chat"></div>
+          </div>
+        </div>
+        <div class="project__info">
+          <p class="project__type">Telegram-бот</p>
+          <h3>Онлайн-запись в барбершоп</h3>
+          <p>Бот, который заменяет администратора на телефоне: клиент сам выбирает услугу, дату и свободное время, а мастер получает уведомление о новой записи.</p>
+          <ul class="project__features">
+            <li>Пошаговая запись через FSM: услуга → дата → время → контакты</li>
+            <li>Свободные слоты считаются автоматически</li>
+            <li>Отмена записи клиентом и уведомления администратору</li>
+            <li>Защита от двойного бронирования на уровне БД</li>
+          </ul>
+          <ul class="tags"><li>Python</li><li>aiogram 3</li><li>SQLite</li></ul>
+          <div class="project__links">
+            <a href="https://t.me/zayavki_demo_pro_bot" target="_blank" rel="noopener" class="link">Попробовать бота ↗</a>
+            <a href="https://github.com/timNeoDev/timNeoDev.github.io/tree/main/projects/booking-bot" target="_blank" rel="noopener" class="link">GitHub ↗</a>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section class="section container" id="services">
+      <h2 class="section__title"><span class="mono">02.</span> Услуги</h2>
+      <div class="cards">
+        <div class="card reveal">
+          <div class="card__icon">🌐</div>
+          <h3>Лендинг</h3>
+          <p>Одностраничный сайт для продукта, услуги или мероприятия. Адаптив, форма заявки, базовое SEO.</p>
+          <p class="card__price">от 15 000 ₽ · 5–7 дней</p>
+        </div>
+        <div class="card reveal">
+          <div class="card__icon">🤖</div>
+          <h3>Telegram-бот</h3>
+          <p>Запись клиентов, приём заявок, каталог, рассылки, уведомления. С базой данных и админ-командами.</p>
+          <p class="card__price">от 10 000 ₽ · 3–7 дней</p>
+        </div>
+        <div class="card reveal">
+          <div class="card__icon">🔗</div>
+          <h3>Сайт + бот</h3>
+          <p>Заявки с сайта сразу приходят вам в Telegram. Ничего не теряется, отвечать можно с телефона.</p>
+          <p class="card__price">от 22 000 ₽ · 7–10 дней</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section container" id="process">
+      <h2 class="section__title"><span class="mono">03.</span> Как я работаю</h2>
+      <ol class="steps">
+        <li class="reveal"><b>Обсуждение</b><span>Разбираемся в задаче, фиксируем функции, сроки и стоимость.</span></li>
+        <li class="reveal"><b>Прототип</b><span>Показываю структуру и дизайн до начала разработки.</span></li>
+        <li class="reveal"><b>Разработка</b><span>Регулярно показываю промежуточный результат.</span></li>
+        <li class="reveal"><b>Запуск</b><span>Размещаю на хостинге/сервере, передаю доступы и код.</span></li>
+        <li class="reveal"><b>Поддержка</b><span>2 недели бесплатных правок после запуска.</span></li>
+      </ol>
+    </section>
+
+    <section class="section container" id="contact">
+      <div class="contact reveal">
+        <h2>Есть задача? Давайте обсудим</h2>
+        <p>Отвечаю в течение пары часов. Первая консультация — бесплатно.</p>
+        <div class="contact__links">
+          <a href="https://t.me/timneodev" class="btn" target="_blank" rel="noopener">✈️ Telegram</a>
+          <a href="https://github.com/timNeoDev" class="btn btn--ghost" target="_blank" rel="noopener">GitHub</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer container">
+    <span>© 2026 Тим · TimNeoDev</span>
+    <span class="mono">сделано с любовью и кофе ☕</span>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>

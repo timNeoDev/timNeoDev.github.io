@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Зерно — кофейня в центре города</title>
+  <meta name="description" content="Кофейня «Зерно»: свежая обжарка, авторские напитки и домашняя выпечка.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="header" id="header">
+    <div class="container header__inner">
+      <a href="#" class="logo">Зерно<span>.</span></a>
+      <nav class="nav" id="nav">
+        <a href="#about">О нас</a>
+        <a href="#menu">Меню</a>
+        <a href="#reviews">Отзывы</a>
+        <a href="#booking">Бронь</a>
+      </nav>
+      <a href="#booking" class="btn btn--small header__cta">Забронировать</a>
+      <button class="burger" id="burger" aria-label="Открыть меню"><span></span><span></span><span></span></button>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="container hero__inner">
+      <div class="hero__text">
+        <p class="eyebrow">Свежая обжарка каждую неделю</p>
+        <h1>Кофе, ради которого<br>стоит проснуться</h1>
+        <p class="hero__lead">Обжариваем зерно сами, печём круассаны каждое утро и знаем, как вы любите свой капучино.</p>
+        <div class="hero__actions">
+          <a href="#menu" class="btn">Смотреть меню</a>
+          <a href="#booking" class="btn btn--ghost">Забронировать стол</a>
+        </div>
+        <ul class="stats">
+          <li><strong data-count="12">0</strong><span>сортов зерна</span></li>
+          <li><strong data-count="4800">0</strong><span>гостей в месяц</span></li>
+          <li><strong data-count="5">0</strong><span>лет работы</span></li>
+        </ul>
+      </div>
+      <div class="hero__visual" aria-hidden="true">
+        <div class="cup">
+          <div class="cup__steam"><i></i><i></i><i></i></div>
+          <div class="cup__body"></div>
+          <div class="cup__handle"></div>
+          <div class="cup__plate"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="about">
+    <div class="container">
+      <h2 class="section__title reveal">Почему к нам возвращаются</h2>
+      <div class="features">
+        <article class="feature reveal">
+          <div class="feature__icon">☕</div>
+          <h3>Своя обжарка</h3>
+          <p>Покупаем зелёное зерно напрямую у фермеров и обжариваем небольшими партиями.</p>
+        </article>
+        <article class="feature reveal">
+          <div class="feature__icon">🥐</div>
+          <h3>Домашняя выпечка</h3>
+          <p>Круассаны, синнабоны и чизкейки готовим на своей кухне каждое утро.</p>
+        </article>
+        <article class="feature reveal">
+          <div class="feature__icon">💻</div>
+          <h3>Место для работы</h3>
+          <p>Быстрый Wi-Fi, розетки у каждого стола и тихий зал на втором этаже.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section--alt" id="menu">
+    <div class="container">
+      <h2 class="section__title reveal">Меню</h2>
+      <div class="filters" role="tablist">
+        <button class="filter is-active" data-filter="all">Всё</button>
+        <button class="filter" data-filter="coffee">Кофе</button>
+        <button class="filter" data-filter="tea">Чай и не кофе</button>
+        <button class="filter" data-filter="food">Еда</button>
+      </div>
+      <div class="menu-grid" id="menuGrid"></div>
+    </div>
+  </section>
+
+  <section class="section" id="reviews">
+    <div class="container">
+      <h2 class="section__title reveal">Что говорят гости</h2>
+      <div class="slider">
+        <div class="slider__track" id="sliderTrack">
+          <blockquote class="review">
+            <p>«Лучший флэт уайт в городе. Хожу каждое утро перед работой, бариста уже знают мой заказ».</p>
+            <cite>Анна, дизайнер</cite>
+          </blockquote>
+          <blockquote class="review">
+            <p>«Отличное место для работы: тихо, вкусно и всегда есть свободная розетка».</p>
+            <cite>Дмитрий, разработчик</cite>
+          </blockquote>
+          <blockquote class="review">
+            <p>«Круассан с миндалём — это любовь. Беру домой сразу три».</p>
+            <cite>Ольга, преподаватель</cite>
+          </blockquote>
+        </div>
+        <div class="slider__dots" id="sliderDots"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section--dark" id="booking">
+    <div class="container booking">
+      <div class="booking__info reveal">
+        <h2>Забронировать столик</h2>
+        <p>Оставьте заявку — мы перезвоним в течение 15 минут и подтвердим бронь.</p>
+        <ul class="contacts">
+          <li>📍 ул. Примерная, 10</li>
+          <li>🕗 Ежедневно 08:00 — 22:00</li>
+          <li>📞 +7 (900) 000-00-00</li>
+        </ul>
+      </div>
+      <form class="form reveal" id="bookingForm" novalidate>
+        <label>Имя
+          <input type="text" name="name" placeholder="Как к вам обращаться" required>
+        </label>
+        <label>Телефон
+          <input type="tel" name="phone" placeholder="+7 (___) ___-__-__" required>
+        </label>
+        <div class="form__row">
+          <label>Дата
+            <input type="date" name="date" required>
+          </label>
+          <label>Гостей
+            <select name="guests">
+              <option>1</option><option selected>2</option><option>3</option><option>4</option><option>5+</option>
+            </select>
+          </label>
+        </div>
+        <button type="submit" class="btn btn--full">Отправить заявку</button>
+        <p class="form__message" id="formMessage" role="status"></p>
+      </form>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container footer__inner">
+      <span>© 2026 Кофейня «Зерно»</span>
+      <span>Учебный проект для портфолио</span>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
