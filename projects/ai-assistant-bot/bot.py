@@ -5,7 +5,6 @@
 """
 import asyncio
 import logging
-import os
 import re
 import time
 from collections import defaultdict
@@ -292,8 +291,10 @@ async def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     if not BOT_TOKEN:
         raise SystemExit("Не задан BOT_TOKEN в .env (токен от @BotFather).")
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        raise SystemExit("Не задан ANTHROPIC_API_KEY в .env (ключ с platform.claude.com).")
+    if ai.demo_mode():
+        logging.warning("ANTHROPIC_API_KEY не задан — бот работает в демо-режиме (ответы из demo.py)")
+    else:
+        logging.info("Claude API подключён, модель %s", ai.MODEL)
     storage.init_db()
     bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()

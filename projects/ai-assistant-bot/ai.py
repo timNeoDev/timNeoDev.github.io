@@ -1,5 +1,6 @@
 """Работа с Claude API: системный промпт, отправка запроса и учёт расходов."""
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Awaitable, Callable
@@ -7,6 +8,7 @@ from typing import Awaitable, Callable
 import anthropic
 from anthropic import AsyncAnthropic
 
+import demo
 from config import BUSINESS_NAME, PHONE
 
 MODEL = "claude-opus-5-5"
@@ -85,8 +87,18 @@ def estimate_cost(usage) -> float:
     ) / 1_000_000
 
 
+def demo_mode() -> bool:
+    """Без ключа API бот работает в демо-режиме (ответы по правилам, см. demo.py)."""
+    return not os.getenv("ANTHROPIC_API_KEY")
+
+
 async def ask(history: list[dict], on_update: Callable[[str], Awaitable[None]]) -> Reply:
     """Отправляет диалог в Claude и стримит ответ: on_update получает накопленный текст."""
+    if demo_mode():
+        text, wants_booking = demo.answer(history[-1]["content"])
+        await demo.stream(text, on_update)
+        return Reply(text=text, wants_booking=wants_booking, refused=False, cost_usd=0.0)
+
     accumulated = ""
     try:
         async with get_client().beta.messages.stream(

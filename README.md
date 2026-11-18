@@ -15,6 +15,7 @@
 
 ### 🤖 [ИИ-консультант кофейни на Claude](projects/ai-assistant-bot)
 Telegram-бот, который отвечает гостям как живой бариста: меню, цены, советы по напиткам, бронирование столика. Ответ печатается в реальном времени, бот помнит контекст и не выдумывает факты. Python, aiogram 3, Claude API, SQLite.
+**Демо:** [@testiilocalbot](https://t.me/testiilocalbot)
 
 ## Стек
 HTML · CSS · JavaScript · Python · aiogram 3 · Claude API · SQLite · Git
