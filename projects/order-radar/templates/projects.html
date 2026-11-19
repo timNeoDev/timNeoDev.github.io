@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Проекты{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Проекты</h1><p>Ваши заказы в работе: этапы, сроки, оплаты</p></div>
+  <a class="btn btn-primary" href="/projects/new">+ Новый проект</a>
+</div>
+
+<nav class="tabs" aria-label="Этап" style="margin-bottom: 16px">
+  <a class="tab {{ 'on' if not stage }}" href="/projects">Все<span class="n">{{ total }}</span></a>
+  {% for key, label in STAGES.items() %}
+    <a class="tab {{ 'on' if stage == key }}" href="?stage={{ key }}">{{ label }}<span class="n">{{ counts[key] }}</span></a>
+  {% endfor %}
+</nav>
+
+<section class="card">
+  {% if projects %}
+  <div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Проект</th><th>Клиент</th><th>Этап</th><th>Дедлайн</th><th>Оплачено</th><th class="num">Сумма</th></tr></thead>
+    <tbody>
+    {% for p in projects %}
+      {% set late = p.deadline and p.deadline < today and p.stage in ACTIVE_STAGES %}
+      <tr>
+        <td><a href="/projects/{{ p.id }}">{{ p.title }}</a><div class="muted small">{{ p.source or "напрямую" }}</div></td>
+        <td>{{ p.client or "—" }}</td>
+        <td>
+          <form method="post" action="/projects/{{ p.id }}/stage">
+            <select name="stage" onchange="this.form.submit()" aria-label="Этап проекта «{{ p.title }}»">
+              {% for key, label in STAGES.items() %}<option value="{{ key }}" {{ 'selected' if key == p.stage }}>{{ label }}</option>{% endfor %}
+            </select>
+          </form>
+        </td>
+        <td class="{{ 'overdue' if late }}">{{ p.deadline or "—" }}{% if late %} · просрочен{% endif %}</td>
+        <td>
+          <div class="progress" title="{{ p.paid | rub }} из {{ p.price | rub }}"><span style="width: {{ (p.paid / p.price * 100) | round | int if p.price else 0 }}%"></span></div>
+          <div class="muted small">{{ p.paid | rub }}</div>
+        </td>
+        <td class="num">{{ p.price | rub }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+    <p class="empty">Проектов пока нет. Добавьте вручную или нажмите «💼 В CRM» у заказа — в боте или на странице «Заказы».</p>
+  {% endif %}
+</section>
+{% endblock %}

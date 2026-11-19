@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Шаблоны откликов{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Шаблоны откликов</h1><p>Готовые тексты: скопируйте и отправьте заказчику. В боте — кнопка «📝 Шаблоны».</p></div>
+</div>
+
+<div class="grid grid-2" style="align-items: start">
+  <div class="stack">
+  {% for t in templates %}
+    <details class="card">
+      <summary class="row" style="cursor: pointer; list-style: none">
+        <b>{{ t.title }}</b><span class="spacer"></span>
+        <button type="button" class="btn btn-sm btn-primary" data-copy="tpl-{{ t.id }}">Копировать</button>
+      </summary>
+      <p class="tpl-body" id="tpl-{{ t.id }}" style="margin-top: 12px">{{ t.body }}</p>
+      <form method="post" action="/templates" class="stack" style="margin-top: 12px">
+        <input type="hidden" name="id" value="{{ t.id }}">
+        <label>Название<input name="title" value="{{ t.title }}" required maxlength="100"></label>
+        <label>Текст<textarea name="body" required maxlength="4000">{{ t.body }}</textarea></label>
+        <div class="row"><button class="btn">Сохранить</button></div>
+      </form>
+      <form method="post" action="/templates/{{ t.id }}/delete" data-confirm="Удалить шаблон «{{ t.title }}»?" style="margin-top: 8px">
+        <button class="btn btn-danger btn-sm">Удалить</button>
+      </form>
+    </details>
+  {% else %}
+    <div class="card empty">Шаблонов пока нет</div>
+  {% endfor %}
+  </div>
+
+  <form class="card stack" method="post" action="/templates">
+    <h2>Новый шаблон</h2>
+    <label>Название<input name="title" placeholder="Например: Парсер" required maxlength="100"></label>
+    <label>Текст отклика<textarea name="body" required maxlength="4000" rows="8"
+      placeholder="Здравствуйте! Сделаю … Пример работы: … Срок — …"></textarea></label>
+    <p class="muted small">Совет: короткое приветствие, ссылка на похожую работу, срок и один уточняющий вопрос — такие отклики читают чаще.</p>
+    <div class="row"><button class="btn btn-primary">Добавить шаблон</button></div>
+  </form>
+</div>
+{% endblock %}

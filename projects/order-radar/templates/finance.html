@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% from "charts.html" import bars, hbars %}
+{% block title %}Финансы{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Финансы</h1><p>Доход считается по добавленным оплатам проектов</p></div></div>
+
+<section class="kpis">
+  <div class="kpi accent"><span>Доход за месяц</span><b>{{ s.income_month | rub }}</b></div>
+  <div class="kpi"><span>За всё время</span><b>{{ s.income_total | rub }}</b></div>
+  <div class="kpi"><span>Ожидается оплат</span><b>{{ s.receivable | rub }}</b><small>по активным проектам</small></div>
+  <div class="kpi"><span>Средний чек</span><b>{{ s.avg_check | rub }}</b><small>по оплаченным проектам</small></div>
+  <div class="kpi"><span>Средний бюджет заказов</span><b>{{ s.avg_budget | rub }}</b><small>среди подходящих на биржах</small></div>
+</section>
+
+<div class="grid grid-2" style="align-items: start">
+  <section class="card">
+    <h2>Доход за 12 месяцев</h2>
+    {% set month_items = [] %}
+    {% for m, v in income %}{% set _ = month_items.append((m | month_label, v)) %}{% endfor %}
+    {{ bars(month_items, money=true, green=true) }}
+  </section>
+  <section class="card">
+    <h2>Ждут оплаты</h2>
+    {% if unpaid %}
+      <table class="table">
+        <thead><tr><th>Проект</th><th>Этап</th><th class="num">Осталось</th></tr></thead>
+        {% for p in unpaid %}
+        <tr>
+          <td><a href="/projects/{{ p.id }}">{{ p.title }}</a></td>
+          <td><span class="badge stage-{{ p.stage }}">{{ STAGES[p.stage] }}</span></td>
+          <td class="num">{{ (p.price - p.paid) | rub }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    {% else %}<p class="empty">Все активные проекты оплачены</p>{% endif %}
+  </section>
+  <section class="card" style="grid-column: 1 / -1">
+    <h2>Рынок: категории заказов <span class="muted small">кол-во · средний бюджет</span></h2>
+    {% if categories %}{{ hbars(categories, "budget") }}{% else %}<p class="empty">Данных пока нет</p>{% endif %}
+  </section>
+</div>
+{% endblock %}

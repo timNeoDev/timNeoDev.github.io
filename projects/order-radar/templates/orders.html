@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Заказы{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Заказы с бирж</h1><p>Kwork · обновляется каждые 3 минуты · просмотры и отклики — актуальные</p></div>
+</div>
+
+<nav class="tabs" aria-label="Статус">
+  {% for key, label in [("new", "Новые"), ("applied", "Откликнулся"), ("hidden", "Скрытые"), ("all", "Все заказы")] %}
+    <a class="tab {{ 'on' if view == key }}" href="?view={{ key }}{% if q %}&q={{ q | urlencode }}{% endif %}{% if budget %}&budget={{ budget }}{% endif %}{% if hot_only %}&hot=1{% endif %}">{{ label }}</a>
+  {% endfor %}
+</nav>
+
+<form class="filters" method="get">
+  <input type="hidden" name="view" value="{{ view }}">
+  <input type="search" name="q" value="{{ q }}" placeholder="Поиск по тексту" aria-label="Поиск по тексту">
+  <input type="number" name="budget" value="{{ budget or '' }}" min="0" step="500" placeholder="Бюджет от, ₽" aria-label="Бюджет от">
+  <label class="check"><input type="checkbox" name="hot" value="1" {{ 'checked' if hot_only }}> Только 🔥 горячие</label>
+  <button class="btn">Применить</button>
+  {% if q or budget or hot_only %}<a class="btn btn-ghost" href="?view={{ view }}">Сбросить</a>{% endif %}
+</form>
+
+<div class="stack">
+{% for o, hot in items %}
+  <article class="card order">
+    <div class="row">
+      {% if hot %}<span class="badge hot">🔥 горячий</span>{% endif %}
+      {% if view == "all" and not o.matched %}<span class="badge">не подходит под фильтры</span>{% endif %}
+      {% if view == "all" and o.matched %}<span class="badge">{{ ORDER_STATUSES[o.status] }}</span>{% endif %}
+      <a class="order-title" href="{{ o.link }}" target="_blank" rel="noopener">{{ o.title }}</a>
+    </div>
+    <div class="order-meta">
+      <span class="price">{{ o.budget | rub }}{% if o.budget_max > o.budget %} – {{ o.budget_max | rub }}{% endif %}</span>
+      <span>👁 <b>{{ o.views }}</b> просмотров</span>
+      <span>💬 <b>{{ o.offers }}</b> откликов</span>
+      <span>{{ o.source }} · {{ o.category or "без категории" }}</span>
+      <span>{{ o.published_at | ago }}</span>
+    </div>
+    <p class="order-desc">{{ o.description }}</p>
+    <div class="row">
+      {% for w in o.matched.split(",") if w %}<span class="badge kw">{{ w }}</span>{% endfor %}
+      <span class="spacer"></span>
+      {% if o.status == "new" %}
+        <form method="post" action="/orders/status"><input type="hidden" name="id" value="{{ o.id }}"><input type="hidden" name="status" value="applied"><button class="btn btn-sm">✅ Откликнулся</button></form>
+        <form method="post" action="/orders/status"><input type="hidden" name="id" value="{{ o.id }}"><input type="hidden" name="status" value="hidden"><button class="btn btn-sm">🙈 Скрыть</button></form>
+      {% else %}
+        <form method="post" action="/orders/status"><input type="hidden" name="id" value="{{ o.id }}"><input type="hidden" name="status" value="new"><button class="btn btn-sm">↩ В новые</button></form>
+      {% endif %}
+      <form method="post" action="/orders/{{ o.id }}/crm"><button class="btn btn-sm btn-primary">💼 В CRM</button></form>
+    </div>
+  </article>
+{% else %}
+  <div class="card empty">Здесь пока пусто. Новые заказы появятся после следующей проверки бирж.</div>
+{% endfor %}
+</div>
+{% endblock %}

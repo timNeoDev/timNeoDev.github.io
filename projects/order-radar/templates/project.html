@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}{{ "Новый проект" if is_new else p.title }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p><a href="/projects" class="muted small">← Все проекты</a></p>
+    <h1>{{ "Новый проект" if is_new else p.title }}</h1>
+  </div>
+  {% if not is_new %}
+  <form method="post" action="/projects/{{ p.id }}/delete" data-confirm="Удалить проект вместе с платежами?">
+    <button class="btn btn-danger btn-sm">Удалить проект</button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="grid grid-2" style="align-items: start">
+  <form class="card stack" method="post" action="{{ '/projects/new' if is_new else '/projects/' ~ p.id }}">
+    <h2>Данные проекта</h2>
+    {% if error %}<p class="flash" role="alert">{{ error }}</p>{% endif %}
+    <div class="form-grid">
+      <label class="wide">Название*<input name="title" value="{{ p.title if p else '' }}" required maxlength="200"></label>
+      <label>Клиент<input name="client" value="{{ p.client if p else '' }}" maxlength="100"></label>
+      <label>Контакт (Telegram, телефон)<input name="contact" value="{{ p.contact if p else '' }}" maxlength="100"></label>
+      <label>Откуда<input name="source" value="{{ p.source if p else '' }}" list="sources" maxlength="50">
+        <datalist id="sources"><option value="Kwork"><option value="Profi.ru"><option value="Напрямую"><option value="Рекомендация"></datalist>
+      </label>
+      <label>Сумма, ₽<input name="price" type="number" min="0" step="100" value="{{ p.price if p else '' }}"></label>
+      <label>Этап
+        <select name="stage">
+          {% for key, label in STAGES.items() %}<option value="{{ key }}" {{ 'selected' if p and p.stage == key }}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Дедлайн<input name="deadline" type="date" value="{{ p.deadline if p and p.deadline else '' }}"></label>
+      <label class="wide">Заметки<textarea name="notes" maxlength="5000">{{ p.notes if p else '' }}</textarea></label>
+    </div>
+    <div class="row"><button class="btn btn-primary">{{ "Создать проект" if is_new else "Сохранить" }}</button></div>
+  </form>
+
+  {% if not is_new %}
+  <section class="card stack">
+    <h2>Оплаты <span class="price">{{ p.paid | rub }} из {{ p.price | rub }}</span></h2>
+    <div class="progress"><span style="width: {{ ((p.paid / p.price * 100) | round | int) if p.price else 0 }}%"></span></div>
+    {% if payments %}
+      <table class="table">
+        {% for pay in payments %}
+        <tr>
+          <td>{{ pay.paid_on }}</td>
+          <td class="muted">{{ pay.note }}</td>
+          <td class="num">{{ pay.amount | rub }}</td>
+          <td class="num">
+            <form method="post" action="/payments/{{ pay.id }}/delete" data-confirm="Удалить платёж?">
+              <input type="hidden" name="project_id" value="{{ p.id }}">
+              <button class="btn btn-ghost btn-sm" aria-label="Удалить платёж">×</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </table>
+    {% else %}<p class="muted">Платежей пока нет</p>{% endif %}
+    <form method="post" action="/projects/{{ p.id }}/payments" class="form-grid">
+      <label>Сумма, ₽<input name="amount" type="number" min="1" step="100" required
+        value="{{ (p.price - p.paid) if p.price > p.paid else '' }}"></label>
+      <label>Дата<input name="paid_on" type="date" value="{{ today }}" required></label>
+      <label class="wide">Комментарий<input name="note" placeholder="Предоплата 50%" maxlength="200"></label>
+      <div class="wide"><button class="btn btn-primary">+ Добавить оплату</button></div>
+    </form>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,28 @@
+{# Простые графики на CSS — без библиотек #}
+
+{% macro bars(items, money=false, green=false) %}
+  {% set mx = (items | map(attribute=1) | max) or 1 %}
+  <div class="bars {{ 'green' if green }}" role="img"
+       aria-label="{% for label, v in items %}{{ label }}: {{ v }}{{ '; ' if not loop.last }}{% endfor %}">
+    {% for label, v in items %}
+      <div class="bar">
+        <i style="height: {{ (v / mx * 100) | round(1) }}%"
+           data-v="{{ (v | rub) if money else v }}{{ '' if v else '' }}"></i>
+        <small>{{ label }}</small>
+      </div>
+    {% endfor %}
+  </div>
+{% endmacro %}
+
+{% macro hbars(items, value_fmt=none) %}
+  {% set mx = (items | map(attribute=1) | max) or 1 %}
+  <div class="hbars">
+    {% for item in items %}
+      <div class="hbar">
+        <span class="name" title="{{ item[0] }}">{{ item[0] }}</span>
+        <div class="track"><div class="fill" style="width: {{ (item[1] / mx * 100) | round(1) }}%"></div></div>
+        <b>{{ item[1] }}{% if value_fmt == "budget" and item[2] %} · ~{{ item[2] | rub }}{% endif %}</b>
+      </div>
+    {% endfor %}
+  </div>
+{% endmacro %}

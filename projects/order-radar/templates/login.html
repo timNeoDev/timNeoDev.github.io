@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Вход · Радар заказов</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="login">
+  <form class="card" method="post" action="/login">
+    <div class="brand" style="padding: 0"><div class="brand-dot">📡</div>Радар заказов</div>
+    <label>Пароль администратора
+      <input type="password" name="password" autocomplete="current-password" autofocus required>
+    </label>
+    {% if error %}<p class="flash" role="alert">Неверный пароль</p>{% endif %}
+    <button class="btn btn-primary">Войти</button>
+  </form>
+</div>
+</body>
+</html>

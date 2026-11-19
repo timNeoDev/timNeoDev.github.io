@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Настройки{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Настройки</h1><p>Что радар считает подходящим заказом</p></div></div>
+
+<div class="grid grid-2" style="align-items: start">
+  {% for kind, title, hint, words in [
+      ("plus", "🔑 Ключевые слова", "Заказ подходит, если в нём есть хотя бы одно слово. Ищется с начала слова: «бот» найдёт «боты», но не «работа».", plus),
+      ("minus", "🚫 Минус-слова", "Заказ отбрасывается, если в нём есть любое из этих слов.", minus)] %}
+  <section class="card stack">
+    <h2>{{ title }}</h2>
+    <p class="muted small">{{ hint }}</p>
+    <div class="chips">
+      {% for w in words %}
+        <form method="post" action="/settings/words/delete" class="chip {{ 'minus' if kind == 'minus' }}">
+          <input type="hidden" name="kind" value="{{ kind }}"><input type="hidden" name="word" value="{{ w }}">
+          {{ w }}<button aria-label="Удалить «{{ w }}»">×</button>
+        </form>
+      {% else %}<span class="muted">Пусто</span>{% endfor %}
+    </div>
+    <form method="post" action="/settings/words" class="row">
+      <input type="hidden" name="kind" value="{{ kind }}">
+      <input name="words" placeholder="через запятую" required aria-label="{{ title }}: новые слова" style="flex: 1; width: auto">
+      <button class="btn btn-primary">Добавить</button>
+    </form>
+  </section>
+  {% endfor %}
+
+  <section class="card stack">
+    <h2>💰 Минимальный бюджет</h2>
+    <p class="muted small">Заказы дешевле не попадут в подходящие и не придут в Telegram. 0 — без ограничения.</p>
+    <form method="post" action="/settings/budget" class="row">
+      <input name="min_budget" type="number" min="0" step="500" value="{{ min_budget }}" aria-label="Минимальный бюджет, ₽" style="max-width: 200px">
+      <button class="btn btn-primary">Сохранить</button>
+    </form>
+  </section>
+
+  <section class="card stack">
+    <h2>📡 Источники</h2>
+    {% for name in sources %}<div class="row"><span class="status-dot {{ 'err' if last_error }}"></span> {{ name }}</div>{% endfor %}
+    <div class="row muted"><span class="status-dot err"></span> Profi.ru — подключим через ваш аккаунт</div>
+    <p class="muted small">Последняя проверка: {{ last_poll or "ещё не было" }}{% if last_error %} · ошибка: {{ last_error }}{% endif %}</p>
+  </section>
+</div>
+{% endblock %}
