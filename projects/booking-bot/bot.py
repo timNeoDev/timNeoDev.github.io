@@ -6,6 +6,7 @@
 import asyncio
 import logging
 import re
+from html import escape
 from datetime import date, datetime
 
 from aiogram import Bot, Dispatcher, F, Router
@@ -52,7 +53,7 @@ def free_slots(day: str) -> list[str]:
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
-        f"Привет, <b>{message.from_user.first_name}</b>! 👋\n\n"
+        f"Привет, <b>{escape(message.from_user.first_name)}</b>! 👋\n\n"
         f"Я бот {BUSINESS_NAME}. Помогу записаться на стрижку за минуту — без звонков.",
         reply_markup=kb.main_menu,
     )
@@ -131,7 +132,7 @@ async def booking_name(message: Message, state: FSMContext):
     if not 2 <= len(name) <= 50:
         await message.answer("Введите имя от 2 до 50 символов.")
         return
-    await state.update_data(name=name)
+    await state.update_data(name=escape(name))  # имя попадает в HTML-сообщения
     await state.set_state(Booking.phone)
     await message.answer("Отправьте номер телефона кнопкой ниже или введите вручную:", reply_markup=kb.phone_keyboard)
 

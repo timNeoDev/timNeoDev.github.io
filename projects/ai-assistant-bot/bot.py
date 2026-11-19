@@ -6,6 +6,7 @@
 import asyncio
 import logging
 import re
+from html import escape
 import time
 from collections import defaultdict
 
@@ -89,7 +90,7 @@ async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     storage.reset_history(message.from_user.id)
     await message.answer(
-        f"Здравствуйте, <b>{message.from_user.first_name}</b>! 👋\n\n"
+        f"Здравствуйте, <b>{escape(message.from_user.first_name)}</b>! 👋\n\n"
         f"Я ИИ-консультант кофейни {BUSINESS_NAME}. Спросите меня о меню, ценах, доставке "
         f"или попросите посоветовать напиток — отвечу за пару секунд.\n\n"
         f"Например: <i>«Что взять, если я не люблю горький кофе?»</i>",
@@ -147,7 +148,7 @@ async def booking_name(message: Message, state: FSMContext):
     if not 2 <= len(name) <= 50:
         await message.answer("Введите имя от 2 до 50 символов.")
         return
-    await state.update_data(name=name)
+    await state.update_data(name=escape(name))  # имя и детали попадают в HTML-сообщения
     await state.set_state(Booking.phone)
     await message.answer("Ваш номер телефона? Можно отправить кнопкой ниже.", reply_markup=phone_kb)
 
@@ -170,11 +171,11 @@ async def booking_phone(message: Message, state: FSMContext):
 @router.message(Booking.details, F.text)
 async def booking_details(message: Message, state: FSMContext):
     details = message.text.strip()[:200]
-    await state.update_data(details=details)
+    await state.update_data(details=escape(details))
     data = await state.get_data()
     await state.set_state(Booking.confirm)
     await message.answer(
-        f"<b>Проверьте заявку:</b>\n\n👤 {data['name']}\n📞 {data['phone']}\n🗓 {details}",
+        f"<b>Проверьте заявку:</b>\n\n👤 {data['name']}\n📞 {data['phone']}\n🗓 {data['details']}",
         reply_markup=confirm_inline(),
     )
 
