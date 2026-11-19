@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Поиск{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Поиск{% if q %}: «{{ q }}»{% endif %}</h1><p>Ищет по заказам, сделкам и клиентам</p></div></div>
+
+{% if not q %}
+  <div class="card empty">Введите запрос в строке поиска сверху</div>
+{% else %}
+<div class="stack">
+  <section class="card">
+    <h2>Сделки <span class="muted small">{{ results.deals | length }}</span></h2>
+    {% for d in results.deals %}
+      <div class="row result"><a href="/deals/{{ d.id }}"><b>{{ d.title }}</b></a><span class="badge stage-{{ d.stage }}">{{ STAGES[d.stage] }}</span><span class="muted small">{{ d.client }}</span></div>
+    {% else %}<p class="muted">Ничего</p>{% endfor %}
+  </section>
+  <section class="card">
+    <h2>Клиенты <span class="muted small">{{ results.clients | length }}</span></h2>
+    {% for c in results.clients %}
+      <div class="row result"><a href="/deals?group=closed&client={{ c.client | urlencode }}"><b>{{ c.client }}</b></a><span class="muted small">{{ c.contact }}</span><span class="price">{{ c.revenue | rub }}</span></div>
+    {% else %}<p class="muted">Ничего</p>{% endfor %}
+  </section>
+  <section class="card">
+    <h2>Заказы с бирж <span class="muted small">{{ results.orders | length }}</span></h2>
+    {% for o in results.orders %}
+      <div class="row result"><a href="{{ o.link }}" target="_blank" rel="noopener"><b>{{ o.title }}</b></a><span class="price">{{ o.budget | rub }}</span><span class="badge">{{ ORDER_STATUSES[o.status] }}</span></div>
+    {% else %}<p class="muted">Ничего</p>{% endfor %}
+  </section>
+</div>
+{% endif %}
+{% endblock %}

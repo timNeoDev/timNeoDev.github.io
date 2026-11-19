@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% from "charts.html" import bars %}
+{% block title %}Главная{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Главная</h1>
+    <p>
+      {% if last_error %}<span class="status-dot err"></span> Сбор заказов: {{ last_error }}
+      {% elif last_poll %}<span class="status-dot"></span> Последняя проверка бирж: {{ last_poll }}
+      {% else %}Первая проверка бирж ещё идёт…{% endif %}
+    </p>
+  </div>
+  <div class="row">
+    <a class="btn" href="/deals/new">+ Сделка</a>
+    <a class="btn btn-primary" href="/orders">Новые заказы{% if s.new_waiting %} · {{ s.new_waiting }}{% endif %}</a>
+  </div>
+</div>
+
+<section class="card goal">
+  <div class="row">
+    <b>Цель на месяц</b><span class="spacer"></span>
+    <span class="price">{{ s.income_month | rub }}</span><span class="muted">из {{ s.income_goal | rub }}</span>
+  </div>
+  <div class="progress progress-lg" role="progressbar" aria-label="Выполнение цели на месяц" aria-valuenow="{{ s.goal_pct }}" aria-valuemin="0" aria-valuemax="100">
+    <span style="width: {{ s.goal_pct }}%"></span>
+  </div>
+  <p class="muted small">Прогноз на месяц: <b>{{ s.forecast_month | rub }}</b> — полученное плюс то, что должны оплатить в этом месяце. Налог самозанятого ({{ s.tax_rate }}%): {{ s.tax_month | rub }}.</p>
+</section>
+
+<section class="kpis" aria-label="Ключевые показатели">
+  <a class="kpi" href="/orders"><span>Найдено сегодня</span><b>{{ s.matched_today }}</b><small>ждут решения: {{ s.new_waiting }}</small></a>
+  <a class="kpi" href="/deals?group=responses"><span>В диалоге</span><b>{{ s.in_dialog }}</b><small>откликов за неделю: {{ s.responses_week }}</small></a>
+  <a class="kpi {{ 'warn' if s.follow_ups }}" href="/analytics#follow-ups"><span>Пора напомнить</span><b>{{ s.follow_ups }}</b><small>клиенты без ответа</small></a>
+  <a class="kpi" href="/finance?tab=awaiting"><span>Ждём оплаты</span><b>{{ s.awaiting | rub }}</b><small>в работе: {{ s.workload }}</small></a>
+  <a class="kpi accent" href="/analytics"><span>Окупаемость откликов</span><b>{{ s.roi }}×</b><small>прибыль: {{ s.response_profit | rub }}</small></a>
+</section>
+
+<div class="grid grid-2">
+  <section class="card">
+    <h2>🔔 Пора напомнить <a href="/analytics#follow-ups">все →</a></h2>
+    {% if follow_ups %}
+      <table class="table">
+        {% for d in follow_ups %}
+        <tr>
+          <td><a href="/deals/{{ d.id }}">{{ d.title }}</a><div class="muted small">{{ d.client or "клиент не указан" }}{% if d.contact %} · {{ d.contact }}{% endif %}</div></td>
+          <td><span class="badge stage-{{ d.stage }}">{{ STAGES[d.stage] }}</span></td>
+        </tr>
+        {% endfor %}
+      </table>
+    {% else %}<p class="empty">Все клиенты на связи 👌</p>{% endif %}
+  </section>
+  <section class="card">
+    <h2>⏰ Дедлайны на неделю <a href="/deals?group=work">в работе →</a></h2>
+    {% if due %}
+      <table class="table">
+        {% for d in due %}
+        <tr>
+          <td><a href="/deals/{{ d.id }}">{{ d.title }}</a></td>
+          <td><span class="badge stage-{{ d.stage }}">{{ STAGES[d.stage] }}</span></td>
+          <td class="num {{ 'overdue' if d.deadline < today }}">{{ d.deadline }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    {% else %}<p class="empty">На ближайшую неделю дедлайнов нет</p>{% endif %}
+  </section>
+
+  <section class="card">
+    <h2>🔥 Горячие заказы <a href="/orders?hot=1">все →</a></h2>
+    {% if hot %}
+      <div class="stack">
+      {% for o in hot %}
+        <div class="row">
+          <a class="order-title small-title" href="{{ o.link }}" target="_blank" rel="noopener">{{ o.title }}</a>
+          <span class="spacer"></span><span class="price">{{ o.budget | rub }}</span><span class="badge">💬 {{ o.offers }}</span>
+        </div>
+      {% endfor %}
+      </div>
+    {% else %}<p class="empty">Сейчас горячих нет — свежий заказ с малым числом откликов появится здесь</p>{% endif %}
+  </section>
+  <section class="card">
+    <h2>Подходящие заказы по дням <a href="/orders?view=all">все заказы →</a></h2>
+    {% set day_items = [] %}
+    {% for d, n in found %}{% set _ = day_items.append((d[8:10] ~ "." ~ d[5:7], n)) %}{% endfor %}
+    {{ bars(day_items) }}
+  </section>
+</div>
+{% endblock %}

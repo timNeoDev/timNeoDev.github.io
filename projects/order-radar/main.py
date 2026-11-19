@@ -32,7 +32,12 @@ async def poll_once(session: aiohttp.ClientSession, bot: Bot | None) -> int:
     first_run = db.is_empty()  # при первом запуске не засыпаем уведомлениями о старых заказах
     plus, minus, min_budget = db.get_words("plus"), db.get_words("minus"), db.min_budget()
     found, errors = 0, []
+    enabled = {a["exchange"] for a in db.list_accounts() if a["enabled"]}
+    if "Profi.ru" in enabled:
+        errors.append("Profi.ru: сбор ещё не настроен")
     for name, fetch in sources.SOURCES:
+        if name not in enabled:
+            continue
         orders = await fetch(session)
         if not orders:
             errors.append(f"{name}: нет данных")

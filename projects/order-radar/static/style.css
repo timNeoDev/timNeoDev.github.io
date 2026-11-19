@@ -80,12 +80,33 @@ label { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
   background: var(--surface-2); color: var(--muted); white-space: nowrap; }
 .badge.hot { background: rgba(255, 107, 107, .15); color: #ff9a9a; }
 .badge.kw { background: var(--accent-soft); color: #c9bbff; font-weight: 500; }
-.stage-lead { background: rgba(90, 180, 255, .15); color: #8ccbff; }
-.stage-work { background: rgba(139, 108, 255, .18); color: #c9bbff; }
-.stage-review { background: rgba(243, 181, 71, .15); color: #f7cd7d; }
+/* этапы сделки: отклик — синие, работа — фиолетовые/жёлтые, итог — зелёный/серый */
+.stage-sent, .stage-dialog, .stage-clarify, .stage-approval { background: rgba(90, 180, 255, .15); color: #8ccbff; }
+.stage-ready, .stage-work { background: rgba(139, 108, 255, .18); color: #c9bbff; }
+.stage-revisions, .stage-review { background: rgba(243, 181, 71, .15); color: #f7cd7d; }
 .stage-done { background: rgba(62, 207, 142, .12); color: #7fe0b3; }
 .stage-paid { background: rgba(62, 207, 142, .22); color: #9ff0c9; }
-.stage-cancelled { background: var(--surface-2); color: var(--muted); }
+.stage-lost { background: var(--surface-2); color: var(--muted); }
+
+/* поиск, подвкладки, цель, ссылки-показатели */
+.topsearch { margin-bottom: 18px; }
+.topsearch input { max-width: 420px; }
+.subtabs { margin: 10px 0 16px; }
+.subtabs .tab { font-size: 13px; padding: 5px 11px; }
+.goal { margin-bottom: 16px; display: grid; gap: 10px; }
+.progress-lg { height: 12px; }
+a.kpi { text-decoration: none; transition: border-color .2s; }
+a.kpi:hover { border-color: var(--accent); }
+.kpi.warn b { color: var(--amber); }
+.section-title { font-size: 18px; margin: 0 0 12px; }
+.status-dot.off { background: var(--muted); }
+label.inline { display: flex; align-items: center; gap: 10px; color: var(--text); font-size: 14px; }
+.small-title { font-size: 14px; }
+.result { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.result:last-child { border-bottom: 0; }
+.result a { text-decoration: none; }
+details > summary { list-style: none; }
+details > summary::-webkit-details-marker { display: none; }
 
 .flash { padding: 10px 14px; border-radius: 10px; background: rgba(255, 107, 107, .12); color: #ffb0b0; }
 

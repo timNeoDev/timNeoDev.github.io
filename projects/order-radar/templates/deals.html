@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Сделки{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Сделки</h1><p>Каждая сделка проходит путь от отклика до оплаты. Этап меняется прямо в списке.</p></div>
+  <a class="btn btn-primary" href="/deals/new">+ Новая сделка</a>
+</div>
+
+<nav class="tabs" aria-label="Группа">
+  {% for key, (label, _) in STAGE_GROUPS.items() %}
+    <a class="tab {{ 'on' if group == key }}" href="?group={{ key }}">{{ label }}<span class="n">{{ group_counts[key] }}</span></a>
+  {% endfor %}
+</nav>
+<nav class="tabs subtabs" aria-label="Этап">
+  <a class="tab {{ 'on' if not stage }}" href="?group={{ group }}">Все</a>
+  {% for key in STAGE_GROUPS[group][1] %}
+    <a class="tab {{ 'on' if stage == key }}" href="?group={{ group }}&stage={{ key }}">{{ STAGES[key] }}<span class="n">{{ counts[key] }}</span></a>
+  {% endfor %}
+</nav>
+
+<section class="card">
+  {% if deals %}
+  <div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Сделка</th><th>Клиент</th><th>Этап</th><th>{{ "Напомнить" if group == "responses" else "Дедлайн" }}</th><th>Оплачено</th><th class="num">Сумма</th></tr></thead>
+    <tbody>
+    {% for d in deals %}
+      {% set late = d.deadline and d.deadline < today and d.stage in WORK_STAGES %}
+      <tr>
+        <td><a href="/deals/{{ d.id }}">{{ d.title }}</a><div class="muted small">{{ d.source or "напрямую" }}{% if d.response_cost %} · отклик {{ d.response_cost | rub }}{% endif %}</div></td>
+        <td>{{ d.client or "—" }}{% if d.contact %}<div class="muted small">{{ d.contact }}</div>{% endif %}</td>
+        <td>
+          <form method="post" action="/deals/{{ d.id }}/stage">
+            <select name="stage" onchange="this.form.submit()" aria-label="Этап сделки «{{ d.title }}»">
+              {% for gkey, (glabel, gstages) in STAGE_GROUPS.items() %}
+                <optgroup label="{{ glabel }}">
+                {% for key in gstages %}<option value="{{ key }}" {{ 'selected' if key == d.stage }}>{{ STAGES[key] }}</option>{% endfor %}
+                </optgroup>
+              {% endfor %}
+            </select>
+          </form>
+        </td>
+        <td class="{{ 'overdue' if late or (group == 'responses' and d.follow_up and d.follow_up <= today) }}">
+          {{ (d.follow_up if group == "responses" else d.deadline) or "—" }}
+        </td>
+        <td>
+          <div class="progress" title="{{ d.paid | rub }} из {{ d.price | rub }}"><span style="width: {{ ((d.paid / d.price * 100) | round | int) if d.price else 0 }}%"></span></div>
+          <div class="muted small">{{ d.paid | rub }}</div>
+        </td>
+        <td class="num">{{ d.price | rub }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+    <p class="empty">Здесь пока пусто. Нажмите «✅ Откликнулся» у заказа — в боте или в разделе «Заказы с бирж», и сделка появится в «Откликах».</p>
+  {% endif %}
+</section>
+{% endblock %}

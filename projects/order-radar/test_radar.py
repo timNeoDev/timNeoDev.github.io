@@ -1,10 +1,10 @@
-"""Проверка сбора, фильтров, CRM, аналитики и всех страниц админки. Запуск: python test_radar.py"""
+"""Проверка сбора, фильтров, сделок, финансов, аналитики и всех страниц админки. Запуск: python test_radar.py"""
 import asyncio
 import os
 import tempfile
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
-os.environ["ADMIN_PASSWORD"] = "test-password"  # до импорта config
+os.environ["ADMIN_PASSWORD"] = "тест-пароль"  # до импорта config; русские буквы — проверка исправления входа
 
 import db  # noqa: E402
 import sources  # noqa: E402
@@ -30,86 +30,119 @@ assert o["description"] == "Нужен бот [срочно] — сегодня"
 assert o["published_at"] == "2026-11-19T21:42:40"                  # дата последней публикации, а не создания
 
 # --- «горячий» заказ ---
-from datetime import datetime  # noqa: E402
 pub = datetime.fromisoformat(o["published_at"])
 assert sources.is_hot(o, pub + timedelta(minutes=30))
 assert not sources.is_hot(o, pub + timedelta(minutes=90))           # старше часа
 assert not sources.is_hot({**o, "offers": 10}, pub)                 # слишком много откликов
 
-# --- фильтры: ключевые слова, минус-слова, бюджет ---
+# --- фильтры ---
 assert filter_order(o, ["бот"], [], 0) == ["бот"]
 assert filter_order(o, ["бот"], ["запис"], 0) == []                # минус-слово отбрасывает
 assert filter_order(o, ["бот"], [], 10000) == []                   # бюджет ниже минимума
 
-# --- база ---
+# --- база: заказы ---
 db.DB_PATH = os.path.join(tempfile.mkdtemp(), "test.db")
 db.init_db()
-assert db.is_empty() and "бот" in db.get_words("plus") and "дизайн" in db.get_words("minus")
+db.init_db()                                                        # повторный запуск не ломает базу
+assert "бот" in db.get_words("plus") and "дизайн" in db.get_words("minus")
+assert {a["exchange"]: a["enabled"] for a in db.list_accounts()} == {"Kwork": 1, "Profi.ru": 0}
 oid = db.upsert_order(o, ["бот"])
 assert oid and db.upsert_order({**o, "views": 99, "offers": 5}, ["бот"]) is None
-assert db.get_order(oid)["views"] == 99 and db.get_order(oid)["offers"] == 5   # повтор обновляет статистику
-assert [r["id"] for r in db.list_orders("new")] == [oid]
-assert db.list_orders("new", q="записи") and not db.list_orders("new", q="нет такого")
-try:
-    db.set_order_status(oid, "deleted")
-    raise AssertionError("неизвестный статус должен отклоняться")
-except ValueError:
-    pass
+assert db.get_order(oid)["views"] == 99 and db.get_order(oid)["offers"] == 5
 
-# --- CRM: проект из заказа, оплаты, дедлайны, аналитика ---
-pid = db.project_from_order(oid)
-assert db.project_from_order(oid) == pid                            # повторно не дублируется
+# --- аккаунты бирж: цена отклика, подключение, отключение ---
+db.set_response_price("Kwork", 50)
+db.connect_account("Profi.ru", "+79990000000", "cookie=secret")
+assert db.get_account("Profi.ru")["enabled"] == 1 and db.get_account("Profi.ru")["secret"] == "cookie=secret"
+db.disconnect_account("Profi.ru")
+assert db.get_account("Profi.ru")["secret"] == "" and db.get_account("Profi.ru")["enabled"] == 0
+
+# --- сделка из отклика: путь до оплаты, деньги, окупаемость ---
+did = db.deal_from_order(oid)
+assert db.deal_from_order(oid) == did                               # повторно не дублируется
+d = db.get_deal(did)
+assert (d["stage"], d["price"], d["response_cost"], d["via_response"]) == ("sent", 5000, 50, 1)
 assert db.get_order(oid)["status"] == "applied"
-p = db.get_project(pid)
-assert p["price"] == 5000 and p["stage"] == "lead" and p["paid"] == 0
-db.save_project({**dict(p), "stage": "work", "deadline": (date.today() + timedelta(days=1)).isoformat()}, pid)
-assert [x["id"] for x in db.due_projects(2)] == [pid]
-db.add_payment(pid, 2500, date.today().isoformat(), "предоплата")
-assert db.get_project(pid)["paid"] == 2500
 try:
-    db.add_payment(pid, 0, date.today().isoformat())
-    raise AssertionError("нулевая оплата должна отклоняться")
+    db.deal_from_order(99999)
+    raise AssertionError("несуществующий заказ должен давать ValueError")
 except ValueError:
     pass
 s = db.overview()
-assert s["income_month"] == 2500 and s["receivable"] == 2500 and s["conversion"] == 100
-assert db.income_by_month(6)[-1] == (date.today().strftime("%Y-%m"), 2500)
-assert db.found_by_day(14)[-1][1] == 1
-assert db.funnel()[0] == ("Найдено", 1)
+assert s["potential"] == 5000 and s["refund_possible"] == 50 and s["responses"] == 1
+db.save_deal({**dict(d), "stage": "work", "client": "Анна",
+              "deadline": (date.today() + timedelta(days=1)).isoformat()}, did)
+assert [x["id"] for x in db.due_deals(2)] == [did]
+db.add_payment(did, 2500, date.today().isoformat(), "предоплата")
+s = db.overview()
+assert s["income_month"] == 2500 and s["awaiting"] == 2500 and s["conversion"] == 100
+assert s["response_profit"] == 2500 - 50 and s["roi"] == 50.0
+assert s["tax_month"] == 100                                         # 4% от 2500
+assert s["forecast_month"] == 5000                                   # 2500 получено + 2500 с дедлайном в этом месяце
+assert db.clients()[0]["client"] == "Анна" and db.clients()[0]["revenue"] == 2500
+assert db.responses_by_source()[0]["profit"] == 2450
+try:
+    db.add_payment(did, 0, date.today().isoformat())
+    raise AssertionError("нулевая оплата должна отклоняться")
+except ValueError:
+    pass
 
-# --- шаблоны ---
-n = len(db.list_templates())
-db.save_template("Тест", "Текст")
-assert len(db.list_templates()) == n + 1
+# --- «пора напомнить»: отклик с наступившей датой напоминания ---
+fid = db.save_deal({"title": "Лендинг", "client": "Олег", "stage": "dialog", "price": 9000,
+                    "follow_up": date.today().isoformat()})
+assert fid in [x["id"] for x in db.follow_ups()] and db.overview()["in_dialog"] == 1
+try:
+    db.save_deal({"title": "Плохая дата", "stage": "sent", "deadline": "завтра"})
+    raise AssertionError("неверная дата должна отклоняться")
+except ValueError:
+    pass
+
+# --- поиск ---
+r = db.search("Анна")
+assert r["clients"] and r["deals"]
 
 # --- бот: тексты сообщений собираются без ошибок ---
 import bot  # noqa: E402
 assert "Бот для записи" in bot.format_order(db.get_order(oid))
-assert "Дедлайны" in bot.reminder_text() and "Сводка" in bot.digest_text()
+assert "Пора напомнить" in bot.reminder_text() and "Сводка" in bot.digest_text()
+
+# --- XSS: название заказа с HTML-кодом должно выводиться как текст ---
+xss_id = db.upsert_order({**o, "link": "https://kwork.ru/projects/1", "title": "<script>alert(1)</script>"}, ["бот"])
 
 
-# --- админка: вход и каждая страница отдаёт 200 ---
 async def check_web():
     from aiohttp.test_utils import TestClient, TestServer
     from web import create_app
     async with TestClient(TestServer(create_app())) as client:
         resp = await client.get("/", allow_redirects=False)
-        assert resp.status == 302 and resp.headers["Location"] == "/login"          # без входа — на логин
-        resp = await client.post("/login", data={"password": "wrong"}, allow_redirects=False)
-        assert resp.status == 200                                                   # неверный пароль
-        resp = await client.post("/login", data={"password": "test-password"}, allow_redirects=False)
-        assert resp.status == 302
+        assert resp.status == 302 and resp.headers["Location"] == "/login"         # без входа — на логин
+        resp = await client.post("/login", data={"password": "пароль"}, allow_redirects=False)
+        assert resp.status == 200                                                  # неверный русский пароль — не 500
+        resp = await client.post("/login", data={"password": "тест-пароль"}, allow_redirects=False)
+        assert resp.status == 302                                                  # верный русский пароль пускает
         for path in ("/", "/orders", "/orders?view=all&q=бот&budget=1000&hot=1", "/orders?view=applied",
-                     "/projects", "/projects?stage=work", f"/projects/{pid}", "/projects/new",
-                     "/finance", "/templates", "/settings", "/static/style.css"):
+                     "/deals", "/deals?group=work", "/deals?group=closed&stage=paid", "/deals?client=Анна",
+                     f"/deals/{did}", "/deals/new", "/analytics", "/clients", "/search?q=Анна", "/search",
+                     "/templates", "/settings", "/static/style.css",
+                     *(f"/finance?tab={t}" for t in ("forecast", "payments", "awaiting", "potential", "workload", "closed"))):
             resp = await client.get(path)
             assert resp.status == 200, (path, resp.status, (await resp.text())[:300])
-        resp = await client.post("/settings/words", data={"kind": "minus", "words": "Логотип, баннер"})
+        page = await (await client.get("/orders")).text()
+        assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page and "<script>alert(1)" not in page
+        resp = await client.post("/orders/99999/respond", allow_redirects=False)
+        assert resp.status == 404                                                  # несуществующий заказ — не 500
+        resp = await client.post(f"/orders/{xss_id}/respond", allow_redirects=False)
+        assert resp.status == 302 and resp.headers["Location"].startswith("/deals/")
+        await client.post("/settings/words", data={"kind": "minus", "words": "Логотип, баннер"})
         assert "баннер" in db.get_words("minus")
-        resp = await client.post(f"/projects/{pid}/stage", data={"stage": "paid"})
-        assert db.get_project(pid)["stage"] == "paid"
-        page = await (await client.get("/orders?view=applied")).text()
-        assert "&lt;b&gt;" not in page or "<b>бот</b>" not in page               # текст заказа экранирован
+        await client.post(f"/deals/{did}/stage", data={"stage": "paid"})
+        assert db.get_deal(did)["stage"] == "paid"
+        await client.post("/accounts", data={"exchange": "Profi.ru", "action": "enable"})
+        assert db.get_account("Profi.ru")["enabled"] == 1
+        await client.post("/settings/general", data={"income_goal": "80000", "tax_rate": "6"})
+        assert db.overview()["income_goal"] == 80000 and db.overview()["tax_rate"] == 6
+        resp = await client.get(f"/projects/{did}", allow_redirects=False)
+        assert resp.headers["Location"] == f"/deals/{did}"                       # старые ссылки бота работают
 
 asyncio.run(check_web())
 print("all OK")

@@ -11,18 +11,24 @@
 <div class="layout">
   <nav class="sidebar" aria-label="Разделы">
     <div class="brand"><div class="brand-dot">📡</div><span>Радар заказов</span></div>
-    {% set links = [("/", "📊", "Обзор"), ("/orders", "📥", "Заказы"), ("/projects", "💼", "Проекты"),
-                    ("/finance", "💰", "Финансы"), ("/templates", "📝", "Шаблоны"), ("/settings", "⚙️", "Настройки")] %}
+    {% set links = [("/", "🏠", "Главная"), ("/orders", "📥", "Заказы с бирж"), ("/deals", "🤝", "Сделки"),
+                    ("/finance", "💰", "Финансы"), ("/analytics", "📈", "Аналитика"), ("/clients", "👥", "Клиенты"),
+                    ("/templates", "📝", "Шаблоны"), ("/settings", "⚙️", "Настройки")] %}
     {% for href, icon, label in links %}
       {% set on = path == href or (href != "/" and path.startswith(href)) %}
       <a class="nav-link {{ 'on' if on }}" href="{{ href }}" {{ 'aria-current=page' if on }}>
         <span aria-hidden="true">{{ icon }}</span> {{ label }}
-        {% if href == "/orders" and new_waiting %}<span class="count">{{ new_waiting }}</span>{% endif %}
+        {% if badges and badges.get(href) %}<span class="count" title="{{ 'новые заказы' if href == '/orders' else 'пора напомнить' }}">{{ badges[href] }}</span>{% endif %}
       </a>
     {% endfor %}
     <form method="post" action="/logout"><button class="btn btn-ghost btn-sm">Выйти</button></form>
   </nav>
-  <main class="main">{% block content %}{% endblock %}</main>
+  <main class="main">
+    <form class="topsearch" method="get" action="/search" role="search">
+      <input type="search" name="q" value="{{ search_q if path == '/search' else '' }}" placeholder="🔎 Поиск: заказы, сделки, клиенты" aria-label="Поиск по радару">
+    </form>
+    {% block content %}{% endblock %}
+  </main>
 </div>
 <script src="/static/app.js"></script>
 </body>

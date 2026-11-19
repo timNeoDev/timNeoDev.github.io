@@ -1,42 +1,91 @@
 {% extends "base.html" %}
-{% from "charts.html" import bars, hbars %}
+{% from "charts.html" import bars %}
 {% block title %}Финансы{% endblock %}
+
+{% macro deal_table(rows, money_label="Сумма", money="price", extra=none) %}
+  {% if rows %}
+  <div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Сделка</th><th>Клиент</th><th>Этап</th><th>Дедлайн</th><th class="num">Оплачено</th><th class="num">{{ money_label }}</th></tr></thead>
+    {% for d in rows %}
+    <tr>
+      <td><a href="/deals/{{ d.id }}">{{ d.title }}</a></td>
+      <td>{{ d.client or "—" }}</td>
+      <td><span class="badge stage-{{ d.stage }}">{{ STAGES[d.stage] }}</span></td>
+      <td class="{{ 'overdue' if d.deadline and d.deadline < today and d.stage in WORK_STAGES }}">{{ d.deadline or "—" }}</td>
+      <td class="num">{{ d.paid | rub }}</td>
+      <td class="num">{{ ((d.price - d.paid) if money == "rest" else d.price) | rub }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}<p class="empty">Здесь пока пусто</p>{% endif %}
+{% endmacro %}
+
 {% block content %}
-<div class="page-head"><div><h1>Финансы</h1><p>Доход считается по добавленным оплатам проектов</p></div></div>
+<div class="page-head"><div><h1>Финансы</h1><p>Доход считается по добавленным оплатам сделок</p></div></div>
 
 <section class="kpis">
-  <div class="kpi accent"><span>Доход за месяц</span><b>{{ s.income_month | rub }}</b></div>
-  <div class="kpi"><span>За всё время</span><b>{{ s.income_total | rub }}</b></div>
-  <div class="kpi"><span>Ожидается оплат</span><b>{{ s.receivable | rub }}</b><small>по активным проектам</small></div>
-  <div class="kpi"><span>Средний чек</span><b>{{ s.avg_check | rub }}</b><small>по оплаченным проектам</small></div>
-  <div class="kpi"><span>Средний бюджет заказов</span><b>{{ s.avg_budget | rub }}</b><small>среди подходящих на биржах</small></div>
+  <div class="kpi accent"><span>Получено за месяц</span><b>{{ s.income_month | rub }}</b><small>цель: {{ s.income_goal | rub }}</small></div>
+  <div class="kpi"><span>Прогноз на месяц</span><b>{{ s.forecast_month | rub }}</b><small>получено + ожидается</small></div>
+  <div class="kpi"><span>Ждём оплаты</span><b>{{ s.awaiting | rub }}</b><small>по сделкам в работе</small></div>
+  <div class="kpi"><span>Потенциально</span><b>{{ s.potential | rub }}</b><small>если все отклики выгорят</small></div>
+  <div class="kpi"><span>Налог НПД ({{ s.tax_rate }}%)</span><b>{{ s.tax_month | rub }}</b><small>за этот месяц, «Мой налог»</small></div>
 </section>
 
+<nav class="tabs" aria-label="Раздел финансов" style="margin-bottom: 16px">
+  {% for key, label in FINANCE_TABS.items() %}<a class="tab {{ 'on' if tab == key }}" href="?tab={{ key }}">{{ label }}</a>{% endfor %}
+</nav>
+
+{% if tab == "forecast" %}
 <div class="grid grid-2" style="align-items: start">
+  <section class="card">
+    <h2>Предварительный доход за месяц</h2>
+    <table class="table">
+      <tr><td>Уже получено</td><td class="num price">{{ s.income_month | rub }}</td></tr>
+      <tr><td>Должны оплатить в этом месяце <div class="muted small">сданные проекты + дедлайн в этом месяце</div></td><td class="num">{{ s.month_due | rub }}</td></tr>
+      <tr><td><b>Прогноз</b></td><td class="num"><b>{{ s.forecast_month | rub }}</b></td></tr>
+      <tr><td class="muted">Налог {{ s.tax_rate }}% с прогноза</td><td class="num muted">{{ (s.forecast_month * s.tax_rate / 100) | round | int | rub }}</td></tr>
+      <tr><td class="muted">До цели не хватает</td><td class="num muted">{{ ([s.income_goal - s.forecast_month, 0] | max) | rub }}</td></tr>
+    </table>
+  </section>
   <section class="card">
     <h2>Доход за 12 месяцев</h2>
     {% set month_items = [] %}
     {% for m, v in income %}{% set _ = month_items.append((m | month_label, v)) %}{% endfor %}
     {{ bars(month_items, money=true, green=true) }}
   </section>
-  <section class="card">
-    <h2>Ждут оплаты</h2>
-    {% if unpaid %}
-      <table class="table">
-        <thead><tr><th>Проект</th><th>Этап</th><th class="num">Осталось</th></tr></thead>
-        {% for p in unpaid %}
-        <tr>
-          <td><a href="/projects/{{ p.id }}">{{ p.title }}</a></td>
-          <td><span class="badge stage-{{ p.stage }}">{{ STAGES[p.stage] }}</span></td>
-          <td class="num">{{ (p.price - p.paid) | rub }}</td>
-        </tr>
-        {% endfor %}
-      </table>
-    {% else %}<p class="empty">Все активные проекты оплачены</p>{% endif %}
-  </section>
-  <section class="card" style="grid-column: 1 / -1">
-    <h2>Рынок: категории заказов <span class="muted small">кол-во · средний бюджет</span></h2>
-    {% if categories %}{{ hbars(categories, "budget") }}{% else %}<p class="empty">Данных пока нет</p>{% endif %}
-  </section>
 </div>
+
+{% elif tab == "payments" %}
+<section class="card">
+  <h2>Все оплаты</h2>
+  {% if payments %}
+  <table class="table">
+    <thead><tr><th>Дата</th><th>Сделка</th><th>Комментарий</th><th class="num">Сумма</th><th></th></tr></thead>
+    {% for pay in payments %}
+    <tr>
+      <td>{{ pay.paid_on }}</td>
+      <td><a href="/deals/{{ pay.project_id }}">{{ pay.title }}</a><div class="muted small">{{ pay.client }}</div></td>
+      <td class="muted">{{ pay.note }}</td><td class="num price">{{ pay.amount | rub }}</td>
+      <td class="num"><form method="post" action="/payments/{{ pay.id }}/delete" data-confirm="Удалить платёж?"><button class="btn btn-ghost btn-sm" aria-label="Удалить платёж">×</button></form></td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="empty">Оплат пока нет — добавьте на странице сделки</p>{% endif %}
+</section>
+
+{% elif tab == "awaiting" %}
+<section class="card"><h2>Ждём оплаты <span class="price">{{ s.awaiting | rub }}</span></h2>{{ deal_table(awaiting, "Осталось", "rest") }}</section>
+{% elif tab == "potential" %}
+<section class="card"><h2>Потенциально — сделки на стадии отклика <span class="muted">{{ s.potential | rub }}</span></h2>{{ deal_table(potential) }}</section>
+{% elif tab == "workload" %}
+<section class="card">
+  <h2>Загрузка — проектов в работе: {{ workload | length }}</h2>
+  <p class="muted small" style="margin-bottom: 12px">Больше 3–4 проектов одновременно — сроки начинают сыпаться. Лучше брать новые после сдачи текущих.</p>
+  {{ deal_table(workload) }}
+</section>
+{% elif tab == "closed" %}
+<section class="card"><h2>Закрыто — оплаченные и отказы</h2>{{ deal_table(closed) }}</section>
+{% endif %}
 {% endblock %}

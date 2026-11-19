@@ -1,9 +1,59 @@
 {% extends "base.html" %}
 {% block title %}Настройки{% endblock %}
 {% block content %}
-<div class="page-head"><div><h1>Настройки</h1><p>Что радар считает подходящим заказом</p></div></div>
+<div class="page-head"><div><h1>Настройки</h1><p>Биржи, фильтры заказов, цели и напоминания</p></div></div>
 
-<div class="grid grid-2" style="align-items: start">
+<h2 class="section-title" id="accounts">Аккаунты бирж</h2>
+<div class="grid grid-2" style="align-items: start; margin-bottom: 28px">
+  {% for a in accounts %}
+  <section class="card stack">
+    <div class="row">
+      <span class="status-dot {{ '' if a.enabled else 'off' }}"></span>
+      <b>{{ a.exchange }}</b>
+      <span class="badge">{{ "сбор включён" if a.enabled else "выключено" }}</span>
+      {% if a.connected_at %}<span class="badge kw">аккаунт подключён</span>{% endif %}
+      <span class="spacer"></span>
+      <form method="post" action="/accounts">
+        <input type="hidden" name="exchange" value="{{ a.exchange }}">
+        <input type="hidden" name="action" value="{{ 'disable' if a.enabled else 'enable' }}">
+        <button class="btn btn-sm {{ '' if a.enabled else 'btn-primary' }}">{{ "Выключить" if a.enabled else "Включить" }}</button>
+      </form>
+    </div>
+    <p class="muted small">{{ exchanges[a.exchange] }}.
+      {% if a.exchange == "Profi.ru" %}Сбор с Profi.ru заработает после того, как мы вместе настроим вход в ваш аккаунт.{% endif %}</p>
+
+    {% if a.connected_at %}
+      <div class="row"><span class="muted small">Подключён {{ a.connected_at }}{% if a.login %} · {{ a.login }}{% endif %}</span><span class="spacer"></span>
+        <form method="post" action="/accounts" data-confirm="Отключить аккаунт {{ a.exchange }}? Данные входа будут удалены.">
+          <input type="hidden" name="exchange" value="{{ a.exchange }}"><input type="hidden" name="action" value="disconnect">
+          <button class="btn btn-sm btn-danger">Отключить аккаунт</button>
+        </form>
+      </div>
+    {% elif a.exchange != "Kwork" %}{# Kwork отдаёт заказы без входа #}
+      <details>
+        <summary class="btn btn-sm">Подключить аккаунт</summary>
+        <form method="post" action="/accounts" class="stack" style="margin-top: 12px">
+          <input type="hidden" name="exchange" value="{{ a.exchange }}"><input type="hidden" name="action" value="connect">
+          <label>Логин или телефон<input name="login" maxlength="100" autocomplete="off"></label>
+          <label>Данные входа (cookie сессии из браузера)<input name="secret" type="password" required autocomplete="off"></label>
+          <p class="muted small">Хранятся только в базе на этом компьютере. Не передавайте их никому.</p>
+          <button class="btn btn-primary">Подключить</button>
+        </form>
+      </details>
+    {% endif %}
+
+    <form method="post" action="/accounts" class="row">
+      <input type="hidden" name="exchange" value="{{ a.exchange }}"><input type="hidden" name="action" value="price">
+      <label class="inline">Цена одного отклика, ₽
+        <input name="response_price" type="number" min="0" value="{{ a.response_price }}" style="max-width: 120px"></label>
+      <button class="btn btn-sm">Сохранить</button>
+    </form>
+  </section>
+  {% endfor %}
+</div>
+
+<h2 class="section-title">Фильтры заказов</h2>
+<div class="grid grid-2" style="align-items: start; margin-bottom: 28px">
   {% for kind, title, hint, words in [
       ("plus", "🔑 Ключевые слова", "Заказ подходит, если в нём есть хотя бы одно слово. Ищется с начала слова: «бот» найдёт «боты», но не «работа».", plus),
       ("minus", "🚫 Минус-слова", "Заказ отбрасывается, если в нём есть любое из этих слов.", minus)] %}
@@ -25,21 +75,16 @@
     </form>
   </section>
   {% endfor %}
-
-  <section class="card stack">
-    <h2>💰 Минимальный бюджет</h2>
-    <p class="muted small">Заказы дешевле не попадут в подходящие и не придут в Telegram. 0 — без ограничения.</p>
-    <form method="post" action="/settings/budget" class="row">
-      <input name="min_budget" type="number" min="0" step="500" value="{{ min_budget }}" aria-label="Минимальный бюджет, ₽" style="max-width: 200px">
-      <button class="btn btn-primary">Сохранить</button>
-    </form>
-  </section>
-
-  <section class="card stack">
-    <h2>📡 Источники</h2>
-    {% for name in sources %}<div class="row"><span class="status-dot {{ 'err' if last_error }}"></span> {{ name }}</div>{% endfor %}
-    <div class="row muted"><span class="status-dot err"></span> Profi.ru — подключим через ваш аккаунт</div>
-    <p class="muted small">Последняя проверка: {{ last_poll or "ещё не было" }}{% if last_error %} · ошибка: {{ last_error }}{% endif %}</p>
-  </section>
 </div>
+
+<h2 class="section-title">Цели и напоминания</h2>
+<form class="card form-grid" method="post" action="/settings/general">
+  <label>Минимальный бюджет заказа, ₽<input name="min_budget" type="number" min="0" step="500" value="{{ min_budget }}"></label>
+  <label>Цель дохода на месяц, ₽<input name="income_goal" type="number" min="0" step="1000" value="{{ s.income_goal }}"></label>
+  <label>Налог самозанятого, %<input name="tax_rate" type="number" min="0" max="20" value="{{ s.tax_rate }}">
+    <span class="muted small">4% — с физлиц, 6% — с компаний и ИП</span></label>
+  <label>«Пора напомнить» через, дней<input name="follow_up_days" type="number" min="1" max="30" value="{{ follow_up_days }}"></label>
+  <div class="wide row"><button class="btn btn-primary">Сохранить</button>
+    <span class="muted small">Последняя проверка бирж: {{ last_poll or "ещё не было" }}{% if last_error %} · {{ last_error }}{% endif %}</span></div>
+</form>
 {% endblock %}

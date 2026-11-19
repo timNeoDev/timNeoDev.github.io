@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% from "charts.html" import hbars %}
+{% block title %}Аналитика{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Аналитика откликов</h1><p>Сколько откликов превращается в деньги и окупаются ли они</p></div></div>
+
+<section class="kpis">
+  <div class="kpi"><span>Откликов всего</span><b>{{ s.responses }}</b><small>за неделю: {{ s.responses_week }}</small></div>
+  <div class="kpi"><span>В диалоге</span><b>{{ s.in_dialog }}</b><small>уточнение и согласование</small></div>
+  <div class="kpi"><span>Доходят до проекта</span><b>{{ s.conversion }}%</b><small>{{ s.won }} из {{ s.responses }}</small></div>
+  <div class="kpi"><span>Потрачено на отклики</span><b>{{ s.response_spend | rub }}</b><small>вернули: {{ s.response_refund | rub }}</small></div>
+  <div class="kpi"><span>Может вернуться</span><b>{{ s.refund_possible | rub }}</b><small>отклики без ответа</small></div>
+  <div class="kpi accent"><span>Прибыль с откликов</span><b>{{ s.response_profit | rub }}</b><small>окупаемость {{ s.roi }}×</small></div>
+</section>
+
+<div class="grid grid-2" style="align-items: start">
+  <section class="card">
+    <h2>Воронка</h2>
+    {{ hbars(funnel) }}
+    <p class="muted small" style="margin-top: 12px">Подходящий заказ → ваш отклик → взяли в работу → оплачено.</p>
+  </section>
+  <section class="card">
+    <h2 id="follow-ups">🔔 Пора напомнить <span class="muted small">{{ follow_ups | length }}</span></h2>
+    {% if follow_ups %}
+      <table class="table">
+        {% for d in follow_ups %}
+        <tr>
+          <td><a href="/deals/{{ d.id }}">{{ d.title }}</a><div class="muted small">{{ d.client or "клиент не указан" }}{% if d.contact %} · {{ d.contact }}{% endif %}</div></td>
+          <td><span class="badge stage-{{ d.stage }}">{{ STAGES[d.stage] }}</span></td>
+          <td class="num muted small">{{ d.follow_up or d.updated_at[:10] }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    {% else %}<p class="empty">Напоминать некому</p>{% endif %}
+  </section>
+
+  <section class="card" style="grid-column: 1 / -1">
+    <h2>Окупаемость по биржам</h2>
+    {% if by_source %}
+    <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Источник</th><th class="num">Откликов</th><th class="num">В работу</th><th class="num">Конверсия</th>
+        <th class="num">Потрачено</th><th class="num">Вернули</th><th class="num">Получено</th><th class="num">Прибыль</th></tr></thead>
+      {% for r in by_source %}
+      <tr>
+        <td><b>{{ r.source }}</b></td><td class="num">{{ r.responses }}</td><td class="num">{{ r.won }}</td>
+        <td class="num">{{ r.conversion }}%</td><td class="num">{{ r.spend | rub }}</td><td class="num">{{ r.refund | rub }}</td>
+        <td class="num">{{ r.income | rub }}</td><td class="num {{ 'price' if r.profit > 0 else 'overdue' if r.profit < 0 }}">{{ r.profit | rub }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    </div>
+    {% else %}<p class="empty">Пока нет откликов — нажмите «✅ Откликнулся» у заказа</p>{% endif %}
+  </section>
+
+  <section class="card" style="grid-column: 1 / -1">
+    <h2>Рынок: что заказывают чаще <span class="muted small">кол-во · средний бюджет</span></h2>
+    {% if categories %}{{ hbars(categories, "budget") }}{% else %}<p class="empty">Данных пока нет</p>{% endif %}
+  </section>
+</div>
+{% endblock %}

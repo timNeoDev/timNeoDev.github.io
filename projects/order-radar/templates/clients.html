@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Клиенты{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Клиенты</h1><p>Собираются из сделок по полю «Клиент». Постоянные клиенты — самый дешёвый доход.</p></div></div>
+
+<section class="card">
+  {% if clients %}
+  <div class="table-wrap">
+  <table class="table">
+    <thead><tr><th>Клиент</th><th>Контакт</th><th class="num">Сделок</th><th class="num">Оплачено</th><th class="num">Принёс</th><th class="num">Последний раз</th></tr></thead>
+    {% for c in clients %}
+    <tr>
+      <td><a href="/deals?group=closed&client={{ c.client | urlencode }}">{{ c.client }}</a>{% if c.deals > 1 %} <span class="badge kw">постоянный</span>{% endif %}</td>
+      <td class="muted">{{ c.contact or "—" }}</td>
+      <td class="num">{{ c.deals }}</td><td class="num">{{ c.paid_deals }}</td>
+      <td class="num price">{{ c.revenue | rub }}</td><td class="num muted">{{ c.last_at[:10] }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}<p class="empty">Клиентов пока нет — укажите имя клиента в сделке</p>{% endif %}
+</section>
+{% endblock %}

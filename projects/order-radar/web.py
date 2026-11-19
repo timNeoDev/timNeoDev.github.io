@@ -1,4 +1,4 @@
-"""Веб-админка радара: обзор, заказы, CRM, финансы, шаблоны, настройки. Вход по паролю из .env."""
+"""Веб-админка радара: главная, заказы, сделки, финансы, аналитика, клиенты, поиск, шаблоны, настройки."""
 import asyncio
 import hashlib
 import hmac
@@ -16,12 +16,10 @@ from config import ADMIN_PASSWORD
 BASE = Path(__file__).parent
 COOKIE = "radar_session"
 MONTHS = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"]
+FINANCE_TABS = {"forecast": "Предварительный доход", "payments": "Оплаты", "awaiting": "Ждём оплаты",
+                "potential": "Потенциально", "workload": "Загрузка", "closed": "Закрыто"}
 
 env = Environment(loader=FileSystemLoader(BASE / "templates"), autoescape=select_autoescape(["html"]))
-
-
-def rub(n) -> str:
-    return f"{int(n or 0):,}".replace(",", " ") + " ₽"
 
 
 def ago(iso: str | None) -> str:
@@ -36,18 +34,16 @@ def ago(iso: str | None) -> str:
     return f"{minutes // 1440} дн назад"
 
 
-def month_label(ym: str) -> str:
-    return MONTHS[int(ym[5:7]) - 1]
-
-
-env.filters.update(rub=rub, ago=ago, month_label=month_label)
-env.globals.update(STAGES=db.STAGES, ORDER_STATUSES=db.ORDER_STATUSES, ACTIVE_STAGES=db.ACTIVE_STAGES)
+env.filters.update(rub=db.rub, ago=ago, month_label=lambda ym: MONTHS[int(ym[5:7]) - 1])
+env.globals.update(STAGES=db.STAGES, STAGE_GROUPS=db.STAGE_GROUPS, RESPONSE_STAGES=db.RESPONSE_STAGES,
+                   WORK_STAGES=db.WORK_STAGES, ORDER_STATUSES=db.ORDER_STATUSES, FINANCE_TABS=FINANCE_TABS)
 
 
 def render(request: web.Request, name: str, **ctx) -> web.Response:
-    ctx.setdefault("path", request.path)
-    ctx["new_waiting"] = db.overview()["new_waiting"] if name != "login.html" else 0
-    ctx["today"] = date.today().isoformat()
+    ctx.update(path=request.path, today=date.today().isoformat(), search_q=request.query.get("q", ""))
+    if name != "login.html":
+        s = db.overview()
+        ctx.setdefault("badges", {"/orders": s["new_waiting"], "/analytics": s["follow_ups"]})
     return web.Response(text=env.get_template(name).render(**ctx), content_type="text/html")
 
 
@@ -64,6 +60,11 @@ def to_int(value, default: int = 0) -> int:
         return default
 
 
+def same(a: str, b: str) -> bool:
+    """Сравнение секретов за постоянное время. Байты — чтобы русские буквы не роняли вход."""
+    return hmac.compare_digest(a.encode(), b.encode())
+
+
 # ---------- Вход ----------
 
 def session_token() -> str:
@@ -74,7 +75,7 @@ def session_token() -> str:
 @web.middleware
 async def auth(request: web.Request, handler):
     if request.path == "/login" or request.path.startswith("/static/") or \
-            hmac.compare_digest(request.cookies.get(COOKIE, ""), session_token()):
+            same(request.cookies.get(COOKIE, ""), session_token()):
         return await handler(request)
     raise web.HTTPFound("/login")
 
@@ -83,7 +84,7 @@ async def login(request: web.Request):
     error = False
     if request.method == "POST":
         form = await request.post()
-        if ADMIN_PASSWORD and hmac.compare_digest(str(form.get("password", "")), ADMIN_PASSWORD):
+        if ADMIN_PASSWORD and same(str(form.get("password", "")), ADMIN_PASSWORD):
             resp = web.HTTPFound("/")
             resp.set_cookie(COOKIE, session_token(), httponly=True, samesite="Strict", max_age=30 * 86400)
             raise resp
@@ -98,16 +99,30 @@ async def logout(request: web.Request):
     raise resp
 
 
-# ---------- Обзор ----------
+# ---------- Главная, аналитика, клиенты, поиск ----------
 
-async def dashboard(request: web.Request):
+async def home(request: web.Request):
+    now = sources.msk_now()
     return render(
-        request, "dashboard.html",
-        s=db.overview(), income=db.income_by_month(6), found=db.found_by_day(14),
-        categories=db.top_categories(6), funnel=db.funnel(), due=db.due_projects(7),
-        hot=[o for o in db.list_orders("new", limit=60) if sources.is_hot(o, sources.msk_now())][:5],
+        request, "home.html", s=db.overview(), found=db.found_by_day(14), income=db.income_by_month(6),
+        follow_ups=db.follow_ups()[:6], due=db.due_deals(7),
+        hot=[o for o in db.list_orders("new", limit=60) if sources.is_hot(o, now)][:5],
         last_poll=db.get_setting("last_poll"), last_error=db.get_setting("last_error"),
     )
+
+
+async def analytics(request: web.Request):
+    return render(request, "analytics.html", s=db.overview(), funnel=db.funnel(), by_source=db.responses_by_source(),
+                  follow_ups=db.follow_ups(), categories=db.top_categories(8))
+
+
+async def clients(request: web.Request):
+    return render(request, "clients.html", clients=db.clients())
+
+
+async def search(request: web.Request):
+    q = request.query.get("q", "").strip()
+    return render(request, "search.html", q=q, results=db.search(q) if q else None)
 
 
 # ---------- Заказы с бирж ----------
@@ -135,91 +150,110 @@ async def order_status(request: web.Request):
     raise back(request, "/orders")
 
 
-async def order_to_crm(request: web.Request):
-    project_id = db.project_from_order(int(request.match_info["id"]))
-    raise web.HTTPFound(f"/projects/{project_id}")
+async def order_respond(request: web.Request):
+    try:
+        deal_id = db.deal_from_order(int(request.match_info["id"]))
+    except ValueError:
+        raise web.HTTPNotFound(text="Заказ не найден — возможно, база радара была очищена")
+    raise web.HTTPFound(f"/deals/{deal_id}")
 
 
-# ---------- CRM ----------
+# ---------- Сделки ----------
 
-async def projects(request: web.Request):
+async def deals(request: web.Request):
+    group = request.query.get("group", "responses")
+    if group not in db.STAGE_GROUPS:
+        group = "responses"
     stage = request.query.get("stage", "")
-    if stage and stage not in db.STAGES:
-        stage = ""
-    all_projects = db.list_projects()
-    counts = {k: sum(p["stage"] == k for p in all_projects) for k in db.STAGES}
-    shown = [p for p in all_projects if not stage or p["stage"] == stage]
-    return render(request, "projects.html", projects=shown, stage=stage, counts=counts, total=len(all_projects))
+    stages = (stage,) if stage in db.STAGE_GROUPS[group][1] else db.STAGE_GROUPS[group][1]
+    q = request.query.get("q", "").strip()
+    client = request.query.get("client", "")
+    if client:  # все сделки клиента, на любом этапе
+        stages = ()
+    all_deals = db.list_deals()
+    counts = {k: sum(d["stage"] == k for d in all_deals) for k in db.STAGES}
+    group_counts = {g: sum(counts[s] for s in st) for g, (_, st) in db.STAGE_GROUPS.items()}
+    return render(request, "deals.html", deals=db.list_deals(stages, q=q, client=client),
+                  group=group, stage=stage, counts=counts, group_counts=group_counts, q=q, client=client)
 
 
-async def project_page(request: web.Request):
-    pid = request.match_info.get("id")
-    project = db.get_project(int(pid)) if pid else None
-    if pid and not project:
-        raise web.HTTPNotFound()
+async def deal_page(request: web.Request):
+    did = request.match_info.get("id")
+    deal = db.get_deal(int(did)) if did else None
+    if did and not deal:
+        raise web.HTTPNotFound(text="Сделка не найдена")
     error = ""
     if request.method == "POST":
         form = dict(await request.post())
         try:
-            new_id = db.save_project(form, int(pid) if pid else None)
-            raise web.HTTPFound(f"/projects/{new_id}")
+            new_id = db.save_deal(form, int(did) if did else None)
+            raise web.HTTPFound(f"/deals/{new_id}")
         except ValueError:
-            error = "Заполните название проекта и проверьте этап."
-            project = form
-    payments = db.list_payments(int(pid)) if pid else []
-    return render(request, "project.html", p=project, payments=payments, error=error, is_new=not pid)
+            error = "Проверьте поля: нужно название, суммы — числами, даты — в формате ГГГГ-ММ-ДД."
+            deal = {**(dict(deal) if deal else {"paid": 0}), **form}
+    return render(request, "deal.html", d=deal, payments=db.list_payments(int(did)) if did else [],
+                  error=error, is_new=not did, accounts={a["exchange"]: a for a in db.list_accounts()})
 
 
-async def project_stage(request: web.Request):
+async def deal_stage(request: web.Request):
     form = await request.post()
     try:
         db.set_stage(int(request.match_info["id"]), str(form["stage"]))
     except (KeyError, ValueError):
         raise web.HTTPBadRequest()
-    raise back(request, "/projects")
+    raise back(request, "/deals")
 
 
-async def project_delete(request: web.Request):
-    db.delete_project(int(request.match_info["id"]))
-    raise web.HTTPFound("/projects")
+async def deal_delete(request: web.Request):
+    db.delete_deal(int(request.match_info["id"]))
+    raise web.HTTPFound("/deals")
 
 
 async def payment_add(request: web.Request):
-    pid = int(request.match_info["id"])
+    did = int(request.match_info["id"])
     form = await request.post()
     try:
-        db.add_payment(pid, to_int(form.get("amount")), str(form.get("paid_on") or date.today().isoformat()),
+        db.add_payment(did, to_int(form.get("amount")), str(form.get("paid_on") or date.today().isoformat()),
                        str(form.get("note", "")))
     except ValueError:
         raise web.HTTPBadRequest(text="Сумма должна быть больше нуля, дата — в формате ГГГГ-ММ-ДД")
-    raise web.HTTPFound(f"/projects/{pid}")
+    raise web.HTTPFound(f"/deals/{did}")
 
 
 async def payment_delete(request: web.Request):
-    form = await request.post()
     db.delete_payment(int(request.match_info["id"]))
-    raise web.HTTPFound(f"/projects/{to_int(form.get('project_id'))}")
+    raise back(request, "/finance?tab=payments")
+
+
+async def old_project_link(request: web.Request):
+    """Ссылки /projects/N из старых сообщений бота ведут на сделку."""
+    raise web.HTTPFound(f"/deals/{request.match_info['id']}")
 
 
 # ---------- Финансы ----------
 
 async def finance(request: web.Request):
-    all_projects = db.list_projects()
-    return render(
-        request, "finance.html", s=db.overview(), income=db.income_by_month(12),
-        unpaid=[p for p in all_projects if p["stage"] in db.ACTIVE_STAGES and p["paid"] < p["price"]],
-        categories=db.top_categories(8),
-    )
+    tab = request.query.get("tab", "forecast")
+    if tab not in FINANCE_TABS:
+        tab = "forecast"
+    all_deals = db.list_deals()
+    ctx = {
+        "awaiting": [d for d in all_deals if d["stage"] in db.WORK_STAGES and d["paid"] < d["price"]],
+        "potential": [d for d in all_deals if d["stage"] in db.RESPONSE_STAGES],
+        "workload": [d for d in all_deals if d["stage"] in ("ready", "work", "revisions", "review")],
+        "closed": [d for d in all_deals if d["stage"] in db.FINAL_STAGES],
+    }
+    return render(request, "finance.html", tab=tab, s=db.overview(), income=db.income_by_month(12),
+                  payments=db.list_payments() if tab == "payments" else [], **ctx)
 
 
-# ---------- Шаблоны откликов ----------
+# ---------- Шаблоны ----------
 
 async def templates_page(request: web.Request):
     if request.method == "POST":
         form = await request.post()
         try:
-            db.save_template(str(form.get("title", "")), str(form.get("body", "")),
-                             to_int(form.get("id")) or None)
+            db.save_template(str(form.get("title", "")), str(form.get("body", "")), to_int(form.get("id")) or None)
         except ValueError:
             raise web.HTTPBadRequest(text="Заполните название и текст шаблона")
         raise web.HTTPFound("/templates")
@@ -231,11 +265,12 @@ async def template_delete(request: web.Request):
     raise web.HTTPFound("/templates")
 
 
-# ---------- Настройки ----------
+# ---------- Настройки и аккаунты бирж ----------
 
 async def settings(request: web.Request):
     return render(request, "settings.html", plus=db.get_words("plus"), minus=db.get_words("minus"),
-                  min_budget=db.min_budget(), sources=[name for name, _ in sources.SOURCES],
+                  accounts=db.list_accounts(), exchanges=db.EXCHANGES, s=db.overview(),
+                  follow_up_days=db.int_setting("follow_up_days"), min_budget=db.min_budget(),
                   last_poll=db.get_setting("last_poll"), last_error=db.get_setting("last_error"))
 
 
@@ -256,32 +291,56 @@ async def words_delete(request: web.Request):
     raise web.HTTPFound("/settings")
 
 
-async def budget_save(request: web.Request):
+async def general_save(request: web.Request):
     form = await request.post()
-    db.set_setting("min_budget", max(to_int(form.get("min_budget")), 0))
+    for key in db.SETTINGS_DEFAULTS:
+        if key in form:
+            db.set_setting(key, max(to_int(form[key]), 0))
     raise web.HTTPFound("/settings")
+
+
+async def account_action(request: web.Request):
+    form = await request.post()
+    exchange, action = str(form.get("exchange")), str(form.get("action"))
+    if exchange not in db.EXCHANGES:
+        raise web.HTTPBadRequest()
+    if action == "enable":
+        db.set_account_enabled(exchange, True)
+    elif action == "disable":
+        db.set_account_enabled(exchange, False)
+    elif action == "connect":
+        try:
+            db.connect_account(exchange, str(form.get("login", "")), str(form.get("secret", "")))
+        except ValueError:
+            raise web.HTTPBadRequest(text="Вставьте данные входа")
+    elif action == "disconnect":
+        db.disconnect_account(exchange)
+    elif action == "price":
+        db.set_response_price(exchange, to_int(form.get("response_price")))
+    else:
+        raise web.HTTPBadRequest()
+    raise web.HTTPFound("/settings#accounts")
 
 
 def create_app() -> web.Application:
     app = web.Application(middlewares=[auth])
     app.add_routes([
         web.get("/login", login), web.post("/login", login), web.post("/logout", logout),
-        web.get("/", dashboard),
+        web.get("/", home), web.get("/analytics", analytics), web.get("/clients", clients), web.get("/search", search),
         web.get("/orders", orders), web.post("/orders/status", order_status),
-        web.post("/orders/{id:\\d+}/crm", order_to_crm),
-        web.get("/projects", projects),
-        web.get("/projects/new", project_page), web.post("/projects/new", project_page),
-        web.get("/projects/{id:\\d+}", project_page), web.post("/projects/{id:\\d+}", project_page),
-        web.post("/projects/{id:\\d+}/stage", project_stage),
-        web.post("/projects/{id:\\d+}/delete", project_delete),
-        web.post("/projects/{id:\\d+}/payments", payment_add),
-        web.post("/payments/{id:\\d+}/delete", payment_delete),
+        web.post("/orders/{id:\\d+}/respond", order_respond),
+        web.get("/deals", deals),
+        web.get("/deals/new", deal_page), web.post("/deals/new", deal_page),
+        web.get("/deals/{id:\\d+}", deal_page), web.post("/deals/{id:\\d+}", deal_page),
+        web.post("/deals/{id:\\d+}/stage", deal_stage), web.post("/deals/{id:\\d+}/delete", deal_delete),
+        web.post("/deals/{id:\\d+}/payments", payment_add), web.post("/payments/{id:\\d+}/delete", payment_delete),
+        web.get("/projects/{id:\\d+}", old_project_link),
         web.get("/finance", finance),
         web.get("/templates", templates_page), web.post("/templates", templates_page),
         web.post("/templates/{id:\\d+}/delete", template_delete),
-        web.get("/settings", settings),
-        web.post("/settings/words", words_add), web.post("/settings/words/delete", words_delete),
-        web.post("/settings/budget", budget_save),
+        web.get("/settings", settings), web.post("/settings/words", words_add),
+        web.post("/settings/words/delete", words_delete), web.post("/settings/general", general_save),
+        web.post("/accounts", account_action),
     ])
     app.router.add_static("/static/", BASE / "static")
     return app

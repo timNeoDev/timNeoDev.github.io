@@ -1,4 +1,4 @@
-"""Telegram-бот радара: уведомления о заказах, фильтры, CRM, напоминания. Отвечает только владельцу."""
+"""Telegram-бот радара: уведомления о заказах, отклики, фильтры, напоминания. Отвечает только владельцу."""
 from datetime import date
 from html import escape
 
@@ -10,16 +10,13 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 import db
 import sources
 from config import ADMIN_ID, WEB_PORT
+from db import rub
 
 router = Router()
 router.message.filter(F.from_user.id == ADMIN_ID)
 router.callback_query.filter(F.from_user.id == ADMIN_ID)
 
 ADMIN_URL = f"http://127.0.0.1:{WEB_PORT}"
-
-
-def rub(n) -> str:
-    return f"{int(n or 0):,}".replace(",", " ") + " ₽"
 
 
 def format_order(o) -> str:
@@ -38,13 +35,12 @@ def format_order(o) -> str:
 def order_kb(o):
     kb = InlineKeyboardBuilder()
     if o["status"] == "new":
-        kb.button(text="✅ Откликнулся", callback_data=f"st:{o['id']}:applied")
+        kb.button(text="✅ Откликнулся", callback_data=f"resp:{o['id']}")
         kb.button(text="🙈 Скрыть", callback_data=f"st:{o['id']}:hidden")
     else:
         kb.button(text=f"{db.ORDER_STATUSES[o['status']]} · вернуть", callback_data=f"st:{o['id']}:new")
-    kb.button(text="💼 В CRM", callback_data=f"crm:{o['id']}")
     kb.button(text="📝 Шаблоны", callback_data="tpl")
-    kb.adjust(2, 2)
+    kb.adjust(2, 1)
     return kb.as_markup()
 
 
@@ -56,27 +52,31 @@ async def notify(bot: Bot, order_id: int) -> None:
 # ---------- Ежедневные сообщения ----------
 
 def reminder_text() -> str | None:
-    due = db.due_projects(days=2)
-    if not due:
-        return None
+    """Утро: дедлайны и клиенты, которым пора напомнить о себе."""
     today = date.today().isoformat()
-    lines = []
-    for p in due:
-        mark = "🔴 просрочен" if p["deadline"] < today else ("🟠 сегодня" if p["deadline"] == today else "🟡 скоро")
-        lines.append(f"{mark} · <b>{escape(p['title'])}</b> — до {p['deadline']} ({db.STAGES[p['stage']]})")
-    return "⏰ <b>Дедлайны</b>\n\n" + "\n".join(lines)
+    parts = []
+    if due := db.due_deals(days=2):
+        lines = [f"{'🔴 просрочен' if d['deadline'] < today else '🟠 сегодня' if d['deadline'] == today else '🟡 скоро'}"
+                 f" · <b>{escape(d['title'])}</b> — до {d['deadline']}" for d in due]
+        parts.append("⏰ <b>Дедлайны</b>\n" + "\n".join(lines))
+    if follow := db.follow_ups():
+        lines = [f"• <b>{escape(d['title'][:60])}</b> — {escape(d['client'] or 'клиент')} "
+                 f"({db.STAGES[d['stage']]}){' · ' + escape(d['contact']) if d['contact'] else ''}" for d in follow[:10]]
+        parts.append("🔔 <b>Пора напомнить о себе</b>\n" + "\n".join(lines))
+    return "\n\n".join(parts) or None
 
 
 def digest_text() -> str:
     s = db.overview()
-    hot = [o for o in db.list_orders("new", limit=50) if sources.is_hot(o, sources.msk_now())][:3]
+    now = sources.msk_now()
+    hot = [o for o in db.list_orders("new", limit=50) if sources.is_hot(o, now)][:3]
     text = (
         "🌙 <b>Сводка за день</b>\n\n"
-        f"Найдено подходящих заказов: {s['matched_today']}\n"
-        f"Ждут решения: {s['new_waiting']}\n"
-        f"Откликов за неделю: {s['applied_week']}\n"
-        f"Проектов в работе: {s['projects_active']}\n"
-        f"Доход за месяц: {rub(s['income_month'])}"
+        f"Найдено подходящих заказов: {s['matched_today']} (ждут решения: {s['new_waiting']})\n"
+        f"Откликов за неделю: {s['responses_week']} · в диалоге: {s['in_dialog']}\n"
+        f"Пора напомнить: {s['follow_ups']}\n"
+        f"Ждём оплаты: {rub(s['awaiting'])}\n"
+        f"Доход за месяц: {rub(s['income_month'])} из {rub(s['income_goal'])} ({s['goal_pct']}%)"
     )
     if hot:
         text += "\n\n🔥 <b>Ещё можно успеть:</b>\n" + "\n".join(
@@ -90,7 +90,8 @@ def digest_text() -> str:
 async def cmd_start(message: Message):
     await message.answer(
         "📡 <b>Радар заказов</b>\n\n"
-        "Каждые 3 минуты проверяю Kwork и присылаю подходящие заказы.\n\n"
+        "Каждые 3 минуты проверяю биржи и присылаю подходящие заказы.\n"
+        "«✅ Откликнулся» сразу создаёт сделку в админке.\n\n"
         "<b>Фильтры</b>\n"
         "/keywords — ключевые и минус-слова\n"
         "/add бот, лендинг — добавить ключевые слова\n"
@@ -99,7 +100,8 @@ async def cmd_start(message: Message):
         "/unminus дизайн — удалить минус-слово\n"
         "/budget 3000 — минимальный бюджет (0 — без ограничения)\n\n"
         "<b>Работа</b>\n"
-        "/projects — проекты в работе\n"
+        "/deals — сделки в работе\n"
+        "/remind — кому пора напомнить и дедлайны\n"
         "/stats — статистика\n"
         "/digest — сводка прямо сейчас\n\n"
         f"Админка: {ADMIN_URL}",
@@ -162,28 +164,33 @@ async def cmd_stats(message: Message):
     s = db.overview()
     await message.answer(
         "📊 <b>Статистика</b>\n\n"
-        f"Просмотрено заказов: {s['seen_total']}\n"
-        f"Подходящих: {s['matched_total']} (сегодня {s['matched_today']})\n"
-        f"Откликов: {s['applied_total']} (за неделю {s['applied_week']})\n"
-        f"Конверсия «отклик → проект»: {s['conversion']}%\n\n"
-        f"Проектов в работе: {s['projects_active']}\n"
-        f"Доход за месяц: {rub(s['income_month'])}\n"
-        f"Ожидается оплат: {rub(s['receivable'])}"
+        f"Подходящих заказов: {s['matched_total']} (сегодня {s['matched_today']})\n"
+        f"Откликов: {s['responses']} · в диалоге: {s['in_dialog']}\n"
+        f"Доходят до проекта: {s['conversion']}%\n"
+        f"Потрачено на отклики: {rub(s['response_spend'])} · вернули: {rub(s['response_refund'])}\n"
+        f"Прибыль с откликов: {rub(s['response_profit'])} (окупаемость {s['roi']}×)\n\n"
+        f"Доход за месяц: {rub(s['income_month'])} · прогноз: {rub(s['forecast_month'])}\n"
+        f"Ждём оплаты: {rub(s['awaiting'])}"
     )
 
 
-@router.message(Command("projects"))
-async def cmd_projects(message: Message):
-    active = [p for p in db.list_projects() if p["stage"] in db.ACTIVE_STAGES]
+@router.message(Command("deals", "projects"))
+async def cmd_deals(message: Message):
+    active = db.list_deals(tuple(db.WORK_STAGES))
     if not active:
-        await message.answer("Активных проектов нет. Добавьте заказ кнопкой «💼 В CRM» или в админке.")
+        await message.answer("Сделок в работе нет.")
         return
     lines = [
-        f"• <b>{escape(p['title'][:60])}</b> — {db.STAGES[p['stage']]}, {rub(p['paid'])} из {rub(p['price'])}"
-        + (f", до {p['deadline']}" if p["deadline"] else "")
-        for p in active
+        f"• <b>{escape(d['title'][:60])}</b> — {db.STAGES[d['stage']]}, {rub(d['paid'])} из {rub(d['price'])}"
+        + (f", до {d['deadline']}" if d["deadline"] else "")
+        for d in active
     ]
-    await message.answer("💼 <b>Проекты в работе</b>\n\n" + "\n".join(lines))
+    await message.answer("🤝 <b>Сделки в работе</b>\n\n" + "\n".join(lines))
+
+
+@router.message(Command("remind"))
+async def cmd_remind(message: Message):
+    await message.answer(reminder_text() or "Дедлайнов нет, напоминать никому не нужно 👌")
 
 
 @router.message(Command("digest"))
@@ -196,19 +203,26 @@ async def cmd_digest(message: Message):
 @router.callback_query(F.data.startswith("st:"))
 async def change_status(call: CallbackQuery):
     _, order_id, status = call.data.split(":")
-    db.set_order_status(int(order_id), status)
-    await call.message.edit_reply_markup(reply_markup=order_kb(db.get_order(int(order_id))))
+    o = db.get_order(int(order_id))
+    if not o:
+        await call.answer("Заказ не найден — база радара была очищена", show_alert=True)
+        return
+    db.set_order_status(o["id"], status)
+    await call.message.edit_reply_markup(reply_markup=order_kb(db.get_order(o["id"])))
     await call.answer(db.ORDER_STATUSES[status])
 
 
-@router.callback_query(F.data.startswith("crm:"))
-async def to_crm(call: CallbackQuery):
+@router.callback_query(F.data.startswith("resp:"))
+async def respond(call: CallbackQuery):
     order_id = int(call.data.split(":")[1])
-    project_id = db.project_from_order(order_id)
+    try:
+        deal_id = db.deal_from_order(order_id)
+    except ValueError:
+        await call.answer("Заказ не найден — база радара была очищена", show_alert=True)
+        return
     await call.message.edit_reply_markup(reply_markup=order_kb(db.get_order(order_id)))
-    await call.answer("Добавлено в CRM")
-    await call.message.answer(f"💼 Проект добавлен в CRM: {ADMIN_URL}/projects/{project_id}",
-                              disable_web_page_preview=True)
+    await call.answer("Сделка создана")
+    await call.message.answer(f"🤝 Сделка в админке: {ADMIN_URL}/deals/{deal_id}", disable_web_page_preview=True)
 
 
 @router.callback_query(F.data == "tpl")
