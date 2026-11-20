@@ -3,7 +3,8 @@ import sqlite3
 from contextlib import closing
 from datetime import date, timedelta
 
-from config import DEFAULT_KEYWORDS, DEFAULT_MINUS_WORDS
+import sources
+from config import DEFAULT_KEYWORDS, DEFAULT_MINUS_WORDS, DEFAULT_TG_CHANNELS, ORDER_INTENT_WORDS
 
 DB_PATH = "radar.db"
 
@@ -83,6 +84,10 @@ def init_db() -> None:
                 amount INTEGER NOT NULL, paid_on TEXT NOT NULL, note TEXT DEFAULT ''
             );
             CREATE TABLE IF NOT EXISTS templates (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, body TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS tg_sources ( -- Telegram: публичные каналы (t.me/s) и чаты (через аккаунт)
+                username TEXT PRIMARY KEY, kind TEXT NOT NULL DEFAULT 'channel', enabled INTEGER NOT NULL DEFAULT 1,
+                last_error TEXT DEFAULT '', last_count INTEGER DEFAULT 0, added_at TEXT DEFAULT (datetime('now', 'localtime'))
+            );
             CREATE TABLE IF NOT EXISTS accounts (   -- биржи: включена ли, данные входа, цена отклика
                 exchange TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0,
                 login TEXT DEFAULT '', secret TEXT DEFAULT '', response_price INTEGER DEFAULT 0, connected_at TEXT
@@ -106,6 +111,58 @@ def init_db() -> None:
         conn.executemany("INSERT OR IGNORE INTO accounts (exchange, enabled) VALUES (?, ?)",
                          [("Kwork", 1), ("Profi.ru", 0)])
         conn.executemany("INSERT OR IGNORE INTO settings VALUES (?, ?)", SETTINGS_DEFAULTS.items())
+        if not conn.execute("SELECT 1 FROM tg_sources LIMIT 1").fetchone():
+            conn.executemany("INSERT INTO tg_sources (username, kind) VALUES (?, 'channel')",
+                             [(c,) for c in DEFAULT_TG_CHANNELS])
+
+
+# ---------- Telegram-каналы и чаты ----------
+
+TG_KINDS = {"channel": "Канал", "chat": "Чат"}
+
+
+def list_tg_sources(enabled_only: bool = False):
+    with closing(_conn()) as conn:
+        return conn.execute("SELECT * FROM tg_sources" + (" WHERE enabled = 1" if enabled_only else "") +
+                            " ORDER BY kind, username").fetchall()
+
+
+def add_tg_source(username: str, kind: str) -> None:
+    if kind not in TG_KINDS or not username:
+        raise ValueError(kind)
+    with closing(_conn()) as conn, conn:
+        conn.execute("INSERT INTO tg_sources (username, kind) VALUES (?, ?) "
+                     "ON CONFLICT(username) DO UPDATE SET kind = excluded.kind, enabled = 1", (username, kind))
+
+
+def set_tg_source(username: str, **fields) -> None:
+    allowed = {k: v for k, v in fields.items() if k in ("enabled", "last_error", "last_count")}
+    with closing(_conn()) as conn, conn:
+        conn.execute(f"UPDATE tg_sources SET {', '.join(f'{k} = ?' for k in allowed)} WHERE username = ?",
+                     (*allowed.values(), username))
+
+
+def delete_tg_source(username: str) -> None:
+    with closing(_conn()) as conn, conn:
+        conn.execute("DELETE FROM tg_sources WHERE username = ?", (username,))
+
+
+def rematch_new_orders() -> int:
+    """После смены фильтров перепроверяет заказы со статусом «Новый». Возвращает, сколько теперь подходит."""
+    plus, minus, budget = get_words("plus"), get_words("minus"), min_budget()
+    chats = {f"TG @{s['username']}" for s in list_tg_sources() if s["kind"] == "chat"}
+    with closing(_conn()) as conn, conn:
+        rows = conn.execute("SELECT * FROM orders WHERE status = 'new'").fetchall()
+        updates = [(",".join(sources.apply_filters(dict(r), plus, minus, budget, r["source"] in chats,
+                                                   ORDER_INTENT_WORDS)), r["id"]) for r in rows]
+        conn.executemany("UPDATE orders SET matched = ? WHERE id = ?", updates)
+    return sum(1 for m, _ in updates if m)
+
+
+def has_orders_from(source: str) -> bool:
+    """Были ли уже заказы с этого источника. Нет — первый проход: старые посты не рассылаем в Telegram."""
+    with closing(_conn()) as conn:
+        return conn.execute("SELECT 1 FROM orders WHERE source = ? LIMIT 1", (source,)).fetchone() is not None
 
 
 # ---------- Настройки ----------

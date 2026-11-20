@@ -19,6 +19,16 @@ POLL_SECONDS = 180
 KWORK_URL = "https://kwork.ru/projects?c=11&page={page}"
 KWORK_PAGES = 3
 
+# Telegram: публичные каналы читаются через t.me/s без входа.
+# Чаты — через ваш аккаунт (Telethon): ключи с https://my.telegram.org → API development tools
+TG_API_ID = int(os.getenv("TG_API_ID", "0") or 0)
+TG_API_HASH = os.getenv("TG_API_HASH", "")
+TG_SESSION = "radar_user"  # файл radar_user.session создаёт tg_login.py; это доступ к аккаунту — не публикуйте
+DEFAULT_TG_CHANNELS = ["digitaltender", "freelancetaverna", "FreeWorkFeed", "workk_on", "normrabota", "webfrl"]
+# В чатах много болтовни: заказом считаем сообщение, где есть хотя бы одно из этих слов
+ORDER_INTENT_WORDS = ["нужен", "нужна", "нужно", "ищу", "ищем", "требуется", "заказ", "бюджет", "оплат",
+                      "задача", "тз", "кто сделает", "кто может", "сделать", "разработать", "доработать"]
+
 # «Горячий» заказ: моложе часа и не больше 3 предложений от фрилансеров
 HOT_MAX_AGE_MIN = 60
 HOT_MAX_OFFERS = 3
@@ -28,5 +38,9 @@ REMINDER_HOUR = 10
 DIGEST_HOUR = 20
 
 # Начальные фильтры (дальше меняются в админке или командами бота)
-DEFAULT_KEYWORDS = ["телеграм", "telegram", "бот", "лендинг", "landing", "сайт", "верстк", "парс", "html", "python"]
-DEFAULT_MINUS_WORDS = ["дизайн", "фигм", "figma", "логотип", "seo"]
+# «telegram»/«телеграм» сюда не входят: в Telegram-постах это почти всегда контакт («пишите в Telegram»),
+# а заказы на ботов и так ловит слово «бот»
+DEFAULT_KEYWORDS = ["бот", "mini app", "лендинг", "landing", "сайт", "верстк", "парс", "html", "python"]
+# Вторая строка — шум Telegram-каналов: резюме соискателей, вакансии в штат, реклама курсов
+DEFAULT_MINUS_WORDS = ["дизайн", "фигм", "figma", "логотип", "seo",
+                       "резюме", "меня зовут", "ищу работу", "ищу себе", "вакансия", "в штат", "курс"]

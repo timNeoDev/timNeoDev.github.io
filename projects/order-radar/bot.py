@@ -126,7 +126,9 @@ async def _change_words(message: Message, args: str | None, kind: str, add: bool
         return
     for w in words:
         db.add_word(kind, w) if add else db.delete_word(kind, w)
-    await message.answer(("Добавлено: " if add else "Удалено: ") + escape(", ".join(words)))
+    count = db.rematch_new_orders()
+    await message.answer(("Добавлено: " if add else "Удалено: ") + escape(", ".join(words)) +
+                         f"\nНовых подходящих заказов теперь: {count}")
 
 
 @router.message(Command("add"))
@@ -156,7 +158,8 @@ async def cmd_budget(message: Message, command: CommandObject):
         await message.answer(f"Сейчас: {rub(db.min_budget())}. Пример: /budget 3000")
         return
     db.set_setting("min_budget", int(value))
-    await message.answer(f"Минимальный бюджет: {rub(value)}")
+    count = db.rematch_new_orders()
+    await message.answer(f"Минимальный бюджет: {rub(value)}\nНовых подходящих заказов теперь: {count}")
 
 
 @router.message(Command("stats"))

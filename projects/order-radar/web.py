@@ -11,6 +11,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 import db
 import sources
+import tg_user
 from config import ADMIN_PASSWORD
 
 BASE = Path(__file__).parent
@@ -270,6 +271,8 @@ async def template_delete(request: web.Request):
 async def settings(request: web.Request):
     return render(request, "settings.html", plus=db.get_words("plus"), minus=db.get_words("minus"),
                   accounts=db.list_accounts(), exchanges=db.EXCHANGES, s=db.overview(),
+                  tg_sources=db.list_tg_sources(), tg_kinds=db.TG_KINDS, tg_account=tg_user.is_configured(),
+                  tg_error=request.query.get("tg_error", ""),
                   follow_up_days=db.int_setting("follow_up_days"), min_budget=db.min_budget(),
                   last_poll=db.get_setting("last_poll"), last_error=db.get_setting("last_error"))
 
@@ -282,12 +285,14 @@ async def words_add(request: web.Request):
     for w in str(form.get("words", "")).split(","):
         if w := sources.clean_word(w):
             db.add_word(kind, w)
+    db.rematch_new_orders()
     raise web.HTTPFound("/settings")
 
 
 async def words_delete(request: web.Request):
     form = await request.post()
     db.delete_word(str(form.get("kind")), str(form.get("word")))
+    db.rematch_new_orders()
     raise web.HTTPFound("/settings")
 
 
@@ -296,6 +301,7 @@ async def general_save(request: web.Request):
     for key in db.SETTINGS_DEFAULTS:
         if key in form:
             db.set_setting(key, max(to_int(form[key]), 0))
+    db.rematch_new_orders()  # мог измениться минимальный бюджет
     raise web.HTTPFound("/settings")
 
 
@@ -322,6 +328,26 @@ async def account_action(request: web.Request):
     raise web.HTTPFound("/settings#accounts")
 
 
+async def tg_action(request: web.Request):
+    form = await request.post()
+    action = str(form.get("action"))
+    if action == "add":
+        username = sources.tg_username(str(form.get("username", "")))
+        if not username:
+            raise web.HTTPFound("/settings?tg_error=1#telegram")
+        try:
+            db.add_tg_source(username, str(form.get("kind", "channel")))
+        except ValueError:
+            raise web.HTTPBadRequest(text="Неизвестный тип источника")
+    elif action in ("enable", "disable"):
+        db.set_tg_source(str(form.get("username")), enabled=int(action == "enable"))
+    elif action == "delete":
+        db.delete_tg_source(str(form.get("username")))
+    else:
+        raise web.HTTPBadRequest()
+    raise web.HTTPFound("/settings#telegram")
+
+
 def create_app() -> web.Application:
     app = web.Application(middlewares=[auth])
     app.add_routes([
@@ -340,7 +366,7 @@ def create_app() -> web.Application:
         web.post("/templates/{id:\\d+}/delete", template_delete),
         web.get("/settings", settings), web.post("/settings/words", words_add),
         web.post("/settings/words/delete", words_delete), web.post("/settings/general", general_save),
-        web.post("/accounts", account_action),
+        web.post("/accounts", account_action), web.post("/tg", tg_action),
     ])
     app.router.add_static("/static/", BASE / "static")
     return app

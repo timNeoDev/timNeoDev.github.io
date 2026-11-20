@@ -52,6 +52,57 @@
   {% endfor %}
 </div>
 
+<h2 class="section-title" id="telegram">Telegram-каналы и чаты</h2>
+<div class="grid grid-2" style="align-items: start; margin-bottom: 28px">
+  <section class="card stack">
+    <h2>Источники <span class="muted small">{{ tg_sources | length }}</span></h2>
+    {% if tg_sources %}
+    <div class="table-wrap">
+    <table class="table">
+      {% for t in tg_sources %}
+      <tr>
+        <td>
+          <span class="status-dot {{ 'err' if t.last_error else ('' if t.enabled else 'off') }}"></span>
+          <a href="https://t.me/{{ t.username }}" target="_blank" rel="noopener"><b>@{{ t.username }}</b></a>
+          <span class="badge">{{ tg_kinds[t.kind] }}</span>
+          <div class="muted small">{% if t.last_error %}{{ t.last_error }}{% elif t.enabled %}последний раз постов: {{ t.last_count }}{% else %}выключен{% endif %}</div>
+        </td>
+        <td class="num">
+          <div class="row" style="justify-content: flex-end">
+            <form method="post" action="/tg"><input type="hidden" name="username" value="{{ t.username }}">
+              <input type="hidden" name="action" value="{{ 'disable' if t.enabled else 'enable' }}">
+              <button class="btn btn-sm">{{ "Выключить" if t.enabled else "Включить" }}</button></form>
+            <form method="post" action="/tg" data-confirm="Удалить @{{ t.username }}?"><input type="hidden" name="username" value="{{ t.username }}">
+              <input type="hidden" name="action" value="delete"><button class="btn btn-sm btn-danger" aria-label="Удалить @{{ t.username }}">×</button></form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    </div>
+    {% else %}<p class="muted">Источников пока нет</p>{% endif %}
+  </section>
+
+  <section class="card stack">
+    <h2>Добавить</h2>
+    {% if tg_error %}<p class="flash" role="alert">Не похоже на адрес канала. Пример: @digitaltender или https://t.me/digitaltender</p>{% endif %}
+    <form method="post" action="/tg" class="stack">
+      <input type="hidden" name="action" value="add">
+      <label>Канал или чат<input name="username" placeholder="@канал или https://t.me/канал" required maxlength="100"></label>
+      <label>Тип
+        <select name="kind">
+          <option value="channel">Канал — читается без аккаунта</option>
+          <option value="chat">Чат (группа) — через ваш аккаунт</option>
+        </select>
+      </label>
+      <button class="btn btn-primary">Добавить</button>
+    </form>
+    <p class="muted small">Новый источник не присылает старые посты в Telegram — уведомления начнутся со следующего заказа. В чатах заказом считаются только сообщения со словами вроде «нужен», «ищу», «бюджет».</p>
+    <div class="row"><span class="status-dot {{ '' if tg_account else 'off' }}"></span>
+      <span class="small">Аккаунт для чатов: {{ "подключён" if tg_account else "не подключён — см. README, раздел «Telegram-чаты»" }}</span></div>
+  </section>
+</div>
+
 <h2 class="section-title">Фильтры заказов</h2>
 <div class="grid grid-2" style="align-items: start; margin-bottom: 28px">
   {% for kind, title, hint, words in [

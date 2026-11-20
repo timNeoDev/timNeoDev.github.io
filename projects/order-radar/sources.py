@@ -32,6 +32,23 @@ def match(text: str, words: list[str]) -> list[str]:
     return [w for w in words if re.search(r"\b" + re.escape(normalize(w)), text)]
 
 
+def filter_order(o: dict, plus: list[str], minus: list[str], min_budget: int) -> list[str]:
+    """Ключевые слова, по которым заказ подходит; пустой список — заказ не подходит."""
+    text = f"{o['title']} {o['description']} {o['category']}"
+    if match(text, minus) or (min_budget and o["budget"] < min_budget):
+        return []
+    return match(text, plus)
+
+
+def apply_filters(o: dict, plus: list[str], minus: list[str], min_budget: int, is_chat: bool,
+                  intent_words: list[str]) -> list[str]:
+    """filter_order + для чатов: сообщение должно быть похоже на заказ, а не на болтовню."""
+    matched = filter_order(o, plus, minus, min_budget)
+    if is_chat and matched and not looks_like_order(o["description"], intent_words):
+        return []
+    return matched
+
+
 def msk_now() -> datetime:
     """Текущее московское время без часового пояса — в том же виде, в каком Kwork отдаёт даты заказов."""
     return (datetime.now(timezone.utc) + timedelta(hours=3)).replace(tzinfo=None)
@@ -96,3 +113,96 @@ async def fetch_kwork(session: aiohttp.ClientSession) -> list[dict]:
 
 
 SOURCES = [("Kwork", fetch_kwork)]
+
+
+# ---------- Telegram ----------
+
+BUDGET_RE = re.compile(r"(\d[\d\s]{0,8}\d|\d)(?:[.,]\d+)?\s*(₽|руб|р\.|р\b|rub|тыс|k\b|к\b)", re.I)
+ZERO_WIDTH = dict.fromkeys(map(ord, "​‌‍﻿"))
+
+
+def extract_budget(text: str) -> int:
+    """Самая крупная сумма в тексте: «5 000 ₽», «15к», «до 20 тыс. руб». 0 — суммы нет."""
+    best = 0
+    for num, unit in BUDGET_RE.findall(text):
+        value = int(re.sub(r"\s", "", num))
+        if unit.lower() in ("тыс", "k", "к"):
+            value *= 1000
+        if value <= 5_000_000:  # отсекаем телефоны и номера заказов
+            best = max(best, value)
+    return best
+
+
+def tg_username(raw: str) -> str:
+    """'@name', 'name', 'https://t.me/name', 't.me/s/name' → 'name'. Пустая строка — не похоже на username."""
+    raw = raw.strip()
+    m = re.fullmatch(r"(?:https?://)?(?:t\.me/(?:s/)?|@)?([A-Za-z][A-Za-z0-9_]{3,31})/?", raw)
+    return m.group(1) if m else ""
+
+
+def looks_like_order(text: str, intent_words: list[str]) -> bool:
+    return bool(match(text, intent_words))
+
+
+def message_to_order(text: str, link: str, source: str, published_utc: datetime | None, views: int = 0,
+                     author: str = "") -> dict | None:
+    """Пост канала или сообщение чата → заказ радара. None — пустое сообщение."""
+    text = text.translate(ZERO_WIDTH).strip()
+    if not text:
+        return None
+    title = next((line.strip() for line in text.splitlines() if line.strip()), "")[:120]
+    budget = extract_budget(text)
+    return {
+        "source": source,
+        "link": link,
+        "title": title,
+        "description": (text + (f"\n\nАвтор: {author}" if author else ""))[:3000],
+        "category": "Telegram",
+        "budget": budget,
+        "budget_max": budget,
+        "views": views,
+        "offers": 0,
+        "published_at": (published_utc.astimezone(timezone.utc) + timedelta(hours=3)).replace(tzinfo=None).isoformat()
+        if published_utc else None,
+    }
+
+
+def _views(raw: str) -> int:
+    raw = raw.strip().upper().replace(",", ".")
+    mult = 1000 if raw.endswith("K") else 1_000_000 if raw.endswith("M") else 1
+    try:
+        return int(float(raw.rstrip("KM")) * mult)
+    except ValueError:
+        return 0
+
+
+def parse_tg_channel(html: str, username: str) -> list[dict]:
+    """Посты со страницы t.me/s/<канал> (последние ~20)."""
+    orders = []
+    for block in html.split('data-post="')[1:]:
+        post = block[:block.index('"')]
+        m = re.search(r'<div class="tgme_widget_message_text[^"]*"[^>]*>(.*?)</div>', block, re.S)
+        if not m or not post.lower().startswith(username.lower() + "/"):
+            continue
+        text = unescape(re.sub(r"<[^>]+>", "", re.sub(r"<br\s*/?>", "\n", m.group(1))))
+        t = re.search(r'<time datetime="([^"]+)"', block)
+        v = re.search(r'tgme_widget_message_views">([^<]+)<', block)
+        order = message_to_order(text, f"https://t.me/{post}", f"TG @{username}",
+                                 datetime.fromisoformat(t.group(1)) if t else None, _views(v.group(1)) if v else 0)
+        if order:
+            orders.append(order)
+    return orders
+
+
+async def fetch_tg_channel(session: aiohttp.ClientSession, username: str) -> list[dict]:
+    """Публичный канал через веб-версию t.me/s — без аккаунта и без бота."""
+    try:
+        async with session.get(f"https://t.me/s/{username}", headers=HEADERS,
+                               timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            resp.raise_for_status()
+            orders = parse_tg_channel(await resp.text(), username)
+    except (aiohttp.ClientError, TimeoutError) as e:
+        raise ValueError(f"недоступен: {e}") from e
+    if not orders:
+        raise ValueError("нет постов — канал закрытый, пустой или это чат")
+    return orders

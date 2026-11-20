@@ -14,39 +14,51 @@ from aiohttp import web
 import bot as tg
 import db
 import sources
-from config import (ADMIN_ID, ADMIN_PASSWORD, BOT_TOKEN, DIGEST_HOUR, POLL_SECONDS, REMINDER_HOUR, WEB_HOST,
-                    WEB_PORT)
+import tg_user
+from config import (ADMIN_ID, ADMIN_PASSWORD, BOT_TOKEN, DIGEST_HOUR, ORDER_INTENT_WORDS, POLL_SECONDS,
+                    REMINDER_HOUR, WEB_HOST, WEB_PORT)
 from web import create_app
 
 
-def filter_order(o: dict, plus: list[str], minus: list[str], min_budget: int) -> list[str]:
-    """Ключевые слова, по которым заказ подходит; пустой список — заказ не подходит."""
-    text = f"{o['title']} {o['description']} {o['category']}"
-    if sources.match(text, minus) or (min_budget and o["budget"] < min_budget):
-        return []
-    return sources.match(text, plus)
-
-
-async def poll_once(session: aiohttp.ClientSession, bot: Bot | None) -> int:
-    """Один проход по всем биржам. Возвращает число новых подходящих заказов."""
-    first_run = db.is_empty()  # при первом запуске не засыпаем уведомлениями о старых заказах
-    plus, minus, min_budget = db.get_words("plus"), db.get_words("minus"), db.min_budget()
-    found, errors = 0, []
+async def collect(session: aiohttp.ClientSession, tg_client) -> tuple[list[tuple[str, list[dict], bool]], list[str]]:
+    """Заказы со всех включённых источников: [(источник, заказы, это_чат)], ошибки бирж."""
+    batches, errors = [], []
     enabled = {a["exchange"] for a in db.list_accounts() if a["enabled"]}
     if "Profi.ru" in enabled:
         errors.append("Profi.ru: сбор ещё не настроен")
     for name, fetch in sources.SOURCES:
-        if name not in enabled:
-            continue
-        orders = await fetch(session)
-        if not orders:
-            errors.append(f"{name}: нет данных")
+        if name in enabled:
+            orders = await fetch(session)
+            if not orders:
+                errors.append(f"{name}: нет данных")
+            batches.append((name, orders, False))
+    for src in db.list_tg_sources(enabled_only=True):  # ошибки каналов видны в настройках, не в общей плашке
+        name, is_chat = src["username"], src["kind"] == "chat"
+        try:
+            if is_chat and tg_client is None:
+                raise ValueError("чаты читаются через ваш аккаунт — подключите его через tg_login.py")
+            orders = await (tg_user.fetch_chat(tg_client, name) if is_chat else sources.fetch_tg_channel(session, name))
+            db.set_tg_source(name, last_error="", last_count=len(orders))
+            batches.append((f"TG @{name}", orders, is_chat))
+        except ValueError as e:
+            db.set_tg_source(name, last_error=str(e)[:200])
+    return batches, errors
+
+
+async def poll_once(session: aiohttp.ClientSession, bot: Bot | None, tg_client=None) -> int:
+    """Один проход по всем источникам. Возвращает число новых подходящих заказов."""
+    plus, minus, min_budget = db.get_words("plus"), db.get_words("minus"), db.min_budget()
+    batches, errors = await collect(session, tg_client)
+    found = 0
+    for source, orders, is_chat in batches:
+        # Первый проход по источнику (новый канал или пустая база) — старые посты не рассылаем
+        notify_new = db.has_orders_from(source)
         for o in reversed(orders):  # от старых к новым — уведомления придут по порядку
-            matched = filter_order(o, plus, minus, min_budget)
+            matched = sources.apply_filters(o, plus, minus, min_budget, is_chat, ORDER_INTENT_WORDS)
             order_id = db.upsert_order(o, matched)
             if order_id and matched:
                 found += 1
-                if bot and not first_run:
+                if bot and notify_new:
                     try:
                         await tg.notify(bot, order_id)
                     except Exception:
@@ -68,10 +80,12 @@ async def daily_messages(bot: Bot) -> None:
 
 
 async def poll_forever(bot: Bot | None) -> None:
+    tg_client = await tg_user.start()
+    logging.info("Telegram-чаты: %s", "аккаунт подключён" if tg_client else "аккаунт не подключён (только каналы)")
     async with aiohttp.ClientSession() as session:
         while True:
             try:
-                found = await poll_once(session, bot)
+                found = await poll_once(session, bot, tg_client)
                 logging.info("Проверка бирж: новых подходящих заказов — %s", found)
                 if bot:
                     await daily_messages(bot)

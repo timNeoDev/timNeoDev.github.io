@@ -8,7 +8,7 @@ os.environ["ADMIN_PASSWORD"] = "тест-пароль"  # до импорта co
 
 import db  # noqa: E402
 import sources  # noqa: E402
-from main import filter_order  # noqa: E402
+from sources import filter_order  # noqa: E402
 
 # --- поиск слов: с начала слова, без учёта регистра и ё ---
 assert sources.match("Нужен Telegram-бот для записи", ["бот", "telegram"]) == ["бот", "telegram"]
@@ -101,6 +101,61 @@ except ValueError:
 r = db.search("Анна")
 assert r["clients"] and r["deals"]
 
+# --- Telegram: адреса каналов, бюджет, разбор t.me/s, сообщения чатов ---
+for raw in ("@digitaltender", "digitaltender", "https://t.me/digitaltender", "t.me/s/digitaltender/"):
+    assert sources.tg_username(raw) == "digitaltender", raw
+assert sources.tg_username("https://t.me/+AbCdEf") == "" and sources.tg_username("кот") == ""
+assert sources.extract_budget("Бюджет: 15 000 ₽, срок 3 дня") == 15000
+assert sources.extract_budget("оплата 10к, тел +7 900 123-45-67") == 10000          # телефон не бюджет
+assert sources.extract_budget("до 20 тыс. руб") == 20000 and sources.extract_budget("без цены") == 0
+TG_HTML = ('<div data-post="testchan/10"><div class="tgme_widget_message_text js-message_text" dir="auto">'
+           '​Нужен Telegram-бот<br/>Бюджет 5000 руб &amp; срок 2 дня</div>'
+           '<span class="tgme_widget_message_views">1.2K</span><time datetime="2026-11-20T12:00:00+00:00"></time></div>'
+           '<div data-post="testchan/11"><div class="tgme_widget_message_photo"></div></div>')  # пост без текста
+posts = sources.parse_tg_channel(TG_HTML, "testchan")
+assert len(posts) == 1
+p0 = posts[0]
+assert p0["title"] == "Нужен Telegram-бот" and p0["budget"] == 5000 and p0["views"] == 1200
+assert p0["link"] == "https://t.me/testchan/10" and p0["source"] == "TG @testchan"
+assert "& срок" in p0["description"] and p0["published_at"] == "2026-11-20T15:00:00"   # UTC → Москва
+assert sources.looks_like_order("Ищу разработчика бота", ["ищу"]) and not sources.looks_like_order("Всем привет", ["ищу"])
+
+
+# --- опрос: новый источник не рассылает старые посты; болтовня из чатов отсекается ---
+async def check_poll():
+    import main
+    sent = []
+
+    async def fake_notify(bot, order_id):
+        sent.append(db.get_order(order_id)["title"])
+
+    def batch(title, n, chat=False, text=None):
+        return (f"TG @{title}", [{**p0, "link": f"https://t.me/{title}/{i}", "source": f"TG @{title}",
+                                  "title": f"{title} {i}", "description": text or p0["description"]} for i in n], chat)
+
+    main.tg.notify = fake_notify
+    plan = [[batch("newchan", [1, 2])], [batch("newchan", [3])],
+            [batch("chatx", [1])], [batch("chatx", [2], chat=True, text="Telegram-бот у меня сломался, лол")]]
+    for step in plan:
+        async def fake_collect(session, tg_client, step=step):
+            return step, []
+        main.collect = fake_collect
+        await main.poll_once(None, bot=object())
+    assert sent == ["newchan 3"], sent                       # 1 и 2 — первый проход, 3 — новый пост
+    assert db.get_order(db.list_orders("all", q="лол")[0]["id"])["matched"] == ""   # болтовня не заказ
+
+asyncio.run(check_poll())
+assert "digitaltender" in [s["username"] for s in db.list_tg_sources()]
+
+# --- смена фильтров перепроверяет «Новые» заказы ---
+rid = db.upsert_order({**p0, "link": "https://t.me/x/500", "title": "Монтажёр, пишите в telegram",
+                       "description": "Монтажёр, пишите в telegram"}, ["telegram"])
+db.add_word("plus", "telegram"); db.rematch_new_orders()
+assert db.get_order(rid)["matched"] == "telegram"
+db.delete_word("plus", "telegram"); db.rematch_new_orders()
+assert db.get_order(rid)["matched"] == ""                                   # мусор ушёл из «Новых»
+assert "telegram" not in db.get_words("plus")                               # и не входит в начальные слова
+
 # --- бот: тексты сообщений собираются без ошибок ---
 import bot  # noqa: E402
 assert "Бот для записи" in bot.format_order(db.get_order(oid))
@@ -143,6 +198,15 @@ async def check_web():
         assert db.overview()["income_goal"] == 80000 and db.overview()["tax_rate"] == 6
         resp = await client.get(f"/projects/{did}", allow_redirects=False)
         assert resp.headers["Location"] == f"/deals/{did}"                       # старые ссылки бота работают
+        await client.post("/tg", data={"action": "add", "username": "https://t.me/Some_Chat", "kind": "chat"})
+        assert ("Some_Chat", "chat") in [(s["username"], s["kind"]) for s in db.list_tg_sources()]
+        resp = await client.post("/tg", data={"action": "add", "username": "не канал"}, allow_redirects=False)
+        assert "tg_error" in resp.headers["Location"]
+        resp = await client.post("/tg", data={"action": "add", "username": "goodname", "kind": "wrong"})
+        assert resp.status == 400
+        await client.post("/tg", data={"action": "delete", "username": "Some_Chat"})
+        assert "Some_Chat" not in [s["username"] for s in db.list_tg_sources()]
+        assert (await client.get("/settings")).status == 200
 
 asyncio.run(check_web())
 print("all OK")
