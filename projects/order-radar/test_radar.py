@@ -276,6 +276,11 @@ async def check_web():
         assert "подключён: @radar_parser" in await (await client.get("/settings")).text()
         await client.post("/tg/account", data={"action": "logout"})
         assert tg_user.CLIENT is None and "Получить код" in await (await client.get("/settings")).text()
+        page = await (await client.get("/settings")).text()
+        assert "Один раз: ключи приложения" in page                               # ключей ещё нет — блок раскрыт
+        db.set_setting("tg_api_id", "12345"); db.set_setting("tg_api_hash", "abc")
+        page = await (await client.get("/settings")).text()
+        assert "Ключи приложения сохранены" in page                                # дальше — только телефон и код
         await client.post("/tg", data={"action": "delete", "username": "Some_Chat"})
         assert "Some_Chat" not in [s["username"] for s in db.list_tg_sources()]
         assert (await client.get("/settings")).status == 200

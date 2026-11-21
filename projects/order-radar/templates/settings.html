@@ -128,15 +128,25 @@
       <form method="post" action="/tg/account"><input type="hidden" name="action" value="cancel"><button class="btn btn-ghost btn-sm">Отмена</button></form>
 
     {% else %}
-      <p class="muted small">Подключите <b>отдельный</b> аккаунт, а не основной: если Telegram ограничит его за частые запросы, основной не пострадает.
-        Ключи приложения: <a href="https://my.telegram.org" target="_blank" rel="noopener">my.telegram.org</a> → API development tools → создать приложение.</p>
-      <form method="post" action="/tg/account" class="form-grid">
+      <p class="muted small">Подключите <b>отдельный</b> аккаунт, а не основной: если Telegram ограничит его за частые запросы, основной не пострадает.</p>
+      <form method="post" action="/tg/account" class="stack">
         <input type="hidden" name="action" value="send_code">
-        <label>api_id<input name="api_id" value="{{ tg_api_id }}" inputmode="numeric" required autocomplete="off"></label>
-        <label>api_hash<input name="api_hash" type="password" autocomplete="off" {{ '' if tg_api_hash_set else 'required' }}
-          placeholder="{{ 'сохранён — можно не вводить' if tg_api_hash_set else '' }}"></label>
-        <label>Номер телефона аккаунта<input name="phone" type="tel" placeholder="+79991234567" required autocomplete="off"></label>
-        <div class="row" style="align-items: end"><button class="btn btn-primary">Получить код</button></div>
+        <div class="row">
+          <label class="inline">Номер телефона<input name="phone" type="tel" placeholder="+79991234567" required autocomplete="off" style="max-width: 220px"></label>
+          <button class="btn btn-primary">Получить код</button>
+        </div>
+        {# Ключи приложения Telegram обязательны для любого стороннего клиента — вводятся один раз и сохраняются #}
+        <details {{ '' if tg_keys_saved else 'open' }}>
+          <summary class="muted small" style="cursor: pointer">{{ "Ключи приложения сохранены · изменить" if tg_keys_saved
+            else "Один раз: ключи приложения Telegram" }}</summary>
+          <p class="muted small" style="margin: 8px 0">Telegram пускает сторонние программы только с ключами приложения.
+            Откройте <a href="https://my.telegram.org" target="_blank" rel="noopener">my.telegram.org</a> под этим аккаунтом →
+            API development tools → создайте приложение с любым названием и скопируйте два поля. Больше вводить не придётся.</p>
+          <div class="form-grid">
+            <label>api_id<input name="api_id" inputmode="numeric" autocomplete="off" {{ '' if tg_keys_saved else 'required' }}></label>
+            <label>api_hash<input name="api_hash" type="password" autocomplete="off" {{ '' if tg_keys_saved else 'required' }}></label>
+          </div>
+        </details>
       </form>
     {% endif %}
   </section>

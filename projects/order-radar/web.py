@@ -278,7 +278,7 @@ async def settings(request: web.Request):
                   accounts=db.list_accounts(), exchanges=db.EXCHANGES, s=db.overview(),
                   tg_sources=db.list_tg_sources(), tg_kinds=db.TG_KINDS,
                   tg_name=await tg_user.account_name(), tg_step=tg_user.login_step(),
-                  tg_api_id=api_id or "", tg_api_hash_set=bool(api_hash), tg_msg=request.query.get("tg_msg", ""),
+                  tg_keys_saved=bool(api_id and api_hash), tg_msg=request.query.get("tg_msg", ""),
                   tg_error=request.query.get("tg_error", ""),
                   follow_up_days=db.int_setting("follow_up_days"), min_budget=db.min_budget(),
                   last_poll=db.get_setting("last_poll"), last_error=db.get_setting("last_error"))
@@ -362,8 +362,9 @@ async def tg_account(request: web.Request):
     action, msg = str(form.get("action")), ""
     try:
         if action == "send_code":
-            api_hash = str(form.get("api_hash", "")) or tg_user.credentials()[1]  # пусто — оставить сохранённый
-            await tg_user.send_code(str(form.get("api_id", "")), api_hash, str(form.get("phone", "")))
+            saved_id, saved_hash = tg_user.credentials()  # ключи вводятся один раз; пустые поля — взять сохранённые
+            await tg_user.send_code(str(form.get("api_id") or saved_id or ""), str(form.get("api_hash") or saved_hash),
+                                    str(form.get("phone", "")))
             msg = "Код отправлен в Telegram на этот номер"
         elif action == "code":
             msg = "Аккаунт подключён" if await tg_user.verify_code(str(form.get("code", ""))) \
