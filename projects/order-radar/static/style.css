@@ -193,3 +193,8 @@ details > summary::-webkit-details-marker { display: none; }
   .hbar { grid-template-columns: 1fr auto; }
   .hbar .track { grid-column: 1 / -1; grid-row: 2; }
 }
+
+/* шанс получить заказ */
+.chance-высокий { background: rgba(62, 207, 142, .16); color: #8ff0c3; }
+.chance-средний { background: rgba(243, 181, 71, .15); color: #f7cd7d; }
+.chance-низкий { background: var(--surface-2); color: var(--muted); }

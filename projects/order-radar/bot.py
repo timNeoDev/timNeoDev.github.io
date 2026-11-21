@@ -20,11 +20,13 @@ ADMIN_URL = f"http://127.0.0.1:{WEB_PORT}"
 
 
 def format_order(o) -> str:
-    hot = "🔥 " if sources.is_hot(o, sources.msk_now()) else ""
+    now = sources.msk_now()
+    hot = "🔥 " if sources.is_hot(o, now) else ""
     budget = rub(o["budget"]) + (f" (до {rub(o['budget_max'])})" if o["budget_max"] > o["budget"] else "")
     return (
         f"{hot}<b>{escape(o['title'])}</b>\n"
         f"💰 {budget} · 👁 {o['views']} · 💬 откликов: {o['offers']}\n"
+        f"🎯 шанс: {sources.chance_label(sources.chance(o, now))}\n"
         f"<i>{escape(o['source'])} · {escape(o['category'] or 'без категории')}</i>\n\n"
         f"{escape((o['description'] or '')[:400])}\n\n"
         f"🔑 {escape(o['matched'])}\n"

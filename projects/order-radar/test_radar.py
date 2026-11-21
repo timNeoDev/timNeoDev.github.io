@@ -166,7 +166,59 @@ assert "telegram" not in db.get_words("plus")                               # и
 
 # --- бот: тексты сообщений собираются без ошибок ---
 import bot  # noqa: E402
-assert "Бот для записи" in bot.format_order(db.get_order(oid))
+assert "Бот для записи" in bot.format_order(db.get_order(oid)) and "шанс:" in bot.format_order(db.get_order(oid))
+
+# --- шанс получить заказ ---
+fresh = {**o, "offers": 2, "budget": 8000, "published_at": "2026-11-20T12:00:00"}
+t0 = datetime.fromisoformat("2026-11-20T12:10:00")
+assert sources.chance(fresh, t0) == 100 and sources.chance_label(100) == "высокий"     # свежий, мало откликов, бюджет
+crowded = {**fresh, "offers": 60, "budget": 500, "published_at": "2026-11-19T12:00:00"}
+assert sources.chance(crowded, t0) == 10 and sources.chance_label(10) == "низкий"       # 60 откликов, сутки, 500 ₽
+assert sources.chance({**fresh, "published_at": None}, t0) == 100 - 4 - 30 + 10          # без даты — как сутки
+
+
+# --- Telegram-аккаунт: вход телефон → код → пароль (Telethon подменён) ---
+import tg_user  # noqa: E402
+from telethon.errors import SessionPasswordNeededError  # noqa: E402
+
+tg_user.SESSION_PATH = os.path.join(tempfile.mkdtemp(), "test_session")  # тест не трогает настоящую сессию
+
+
+class FakeClient:
+    def __init__(self, need_password=False):
+        self.need_password, self.calls = need_password, []
+
+    async def sign_in(self, phone=None, code=None, phone_code_hash=None, password=None):
+        self.calls.append((code, password))
+        if code and self.need_password:
+            raise SessionPasswordNeededError(request=None)
+
+    async def get_me(self):
+        return type("Me", (), {"username": "radar_parser", "first_name": "Радар"})()
+
+    async def disconnect(self):
+        pass
+
+    async def log_out(self):
+        self.calls.append("log_out")
+
+
+async def check_tg_login():
+    tg_user._pending.update(client=FakeClient(need_password=True), phone="+79990000000", hash="h")
+    assert tg_user.login_step() == "code"
+    assert await tg_user.verify_code("12345") is False and tg_user.login_step() == "password"
+    await tg_user.verify_password("secret")
+    assert tg_user.login_step() == "" and await tg_user.account_name() == "@radar_parser"
+    client = tg_user.CLIENT
+    await tg_user.logout()
+    assert tg_user.CLIENT is None and "log_out" in client.calls       # сессия завершена на серверах Telegram
+    try:
+        await tg_user.send_code("abc", "hash", "+7999")
+        raise AssertionError("нечисловой api_id должен отклоняться")
+    except ValueError:
+        pass
+
+asyncio.run(check_tg_login())
 assert "Пора напомнить" in bot.reminder_text() and "Сводка" in bot.digest_text()
 
 # --- XSS: название заказа с HTML-кодом должно выводиться как текст ---
@@ -212,6 +264,18 @@ async def check_web():
         assert "tg_error" in resp.headers["Location"]
         resp = await client.post("/tg", data={"action": "add", "username": "goodname", "kind": "wrong"})
         assert resp.status == 400
+        assert (await client.get("/orders?sort=fresh")).status == 200
+        page = await (await client.get("/orders")).text()
+        assert "шанс:" in page
+        resp = await client.post("/tg/account", data={"action": "send_code", "api_id": "abc", "api_hash": "x",
+                                                      "phone": "+7999"}, allow_redirects=False)
+        assert "tg_msg=" in resp.headers["Location"]                                  # ошибка показана, не 500
+        tg_user._pending.update(client=FakeClient(), phone="+7999", hash="h")
+        assert "Код из Telegram" in await (await client.get("/settings")).text()     # шаг ввода кода
+        await client.post("/tg/account", data={"action": "code", "code": "11111"})
+        assert "подключён: @radar_parser" in await (await client.get("/settings")).text()
+        await client.post("/tg/account", data={"action": "logout"})
+        assert tg_user.CLIENT is None and "Получить код" in await (await client.get("/settings")).text()
         await client.post("/tg", data={"action": "delete", "username": "Some_Chat"})
         assert "Some_Chat" not in [s["username"] for s in db.list_tg_sources()]
         assert (await client.get("/settings")).status == 200

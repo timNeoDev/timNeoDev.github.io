@@ -5,11 +5,13 @@ import asyncio
 
 from telethon import TelegramClient
 
-from config import TG_API_HASH, TG_API_ID
-from tg_user import SESSION_PATH
+import db
+from tg_user import SESSION_PATH, credentials
 
 
 async def main():
+    db.init_db()
+    TG_API_ID, TG_API_HASH = credentials()
     if not (TG_API_ID and TG_API_HASH):
         raise SystemExit("Добавьте TG_API_ID и TG_API_HASH в .env — их выдают на https://my.telegram.org → API development tools")
     async with TelegramClient(SESSION_PATH, TG_API_ID, TG_API_HASH) as client:  # спросит телефон и код

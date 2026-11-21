@@ -55,6 +55,22 @@ def apply_filters(o: dict, plus: list[str], minus: list[str], min_budget: int, i
     return matched
 
 
+def chance(o, now: datetime) -> int:
+    """Шанс получить заказ, 0–100: меньше откликов и свежее — выше; нормальный бюджет — плюс.
+    shortcut: веса подобраны на глаз; когда наберётся статистика выигранных сделок, подобрать по ней."""
+    age_h = (now - datetime.fromisoformat(o["published_at"])).total_seconds() / 3600 if o["published_at"] else 24
+    score = 100 - min((o["offers"] or 0) * 2, 50) - min(int(max(age_h, 0) * 5), 30)
+    if o["budget"] >= 5000:
+        score += 10
+    elif 0 < o["budget"] < 1000:
+        score -= 10
+    return max(0, min(score, 100))
+
+
+def chance_label(score: int) -> str:
+    return "высокий" if score >= 70 else "средний" if score >= 40 else "низкий"
+
+
 def msk_now() -> datetime:
     """Текущее московское время без часового пояса — в том же виде, в каком Kwork отдаёт даты заказов."""
     return (datetime.now(timezone.utc) + timedelta(hours=3)).replace(tzinfo=None)

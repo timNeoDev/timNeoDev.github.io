@@ -2,7 +2,7 @@
 {% block title %}Заказы{% endblock %}
 {% block content %}
 <div class="page-head">
-  <div><h1>Заказы с бирж</h1><p>Kwork · обновляется каждые 3 минуты · просмотры и отклики — актуальные</p></div>
+  <div><h1>Заказы с бирж</h1><p>Kwork и Telegram · обновляется каждые 3 минуты · «шанс» выше у свежих заказов с малым числом откликов</p></div>
 </div>
 
 <nav class="tabs" aria-label="Статус">
@@ -16,14 +16,19 @@
   <input type="search" name="q" value="{{ q }}" placeholder="Поиск по тексту" aria-label="Поиск по тексту">
   <input type="number" name="budget" value="{{ budget or '' }}" min="0" step="500" placeholder="Бюджет от, ₽" aria-label="Бюджет от">
   <label class="check"><input type="checkbox" name="hot" value="1" {{ 'checked' if hot_only }}> Только 🔥 горячие</label>
+  <select name="sort" aria-label="Сортировка" style="width: auto">
+    <option value="chance" {{ 'selected' if sort == 'chance' }}>Сначала с высоким шансом</option>
+    <option value="fresh" {{ 'selected' if sort == 'fresh' }}>Сначала новые</option>
+  </select>
   <button class="btn">Применить</button>
   {% if q or budget or hot_only %}<a class="btn btn-ghost" href="?view={{ view }}">Сбросить</a>{% endif %}
 </form>
 
 <div class="stack">
-{% for o, hot in items %}
+{% for o, hot, ch in items %}
   <article class="card order">
     <div class="row">
+      <span class="badge chance-{{ chance_label(ch) }}" title="Шанс {{ ch }} из 100: свежесть, число откликов, бюджет">шанс: {{ chance_label(ch) }}</span>
       {% if hot %}<span class="badge hot">🔥 горячий</span>{% endif %}
       {% if view == "all" and not o.matched %}<span class="badge">не подходит под фильтры</span>{% endif %}
       {% if view == "all" and o.matched %}<span class="badge">{{ ORDER_STATUSES[o.status] }}</span>{% endif %}

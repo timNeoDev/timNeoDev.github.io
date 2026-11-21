@@ -35,9 +35,12 @@ async def collect(session: aiohttp.ClientSession, tg_client) -> tuple[list[tuple
     for src in db.list_tg_sources(enabled_only=True):  # ошибки каналов видны в настройках, не в общей плашке
         name, is_chat = src["username"], src["kind"] == "chat"
         try:
-            if is_chat and tg_client is None:
-                raise ValueError("чаты читаются через ваш аккаунт — подключите его через tg_login.py")
-            orders = await (tg_user.fetch_chat(tg_client, name) if is_chat else sources.fetch_tg_channel(session, name))
+            if tg_client:  # подключён аккаунт для парсинга — читаем через него (видит и закрытые каналы, и чаты)
+                orders = await tg_user.fetch(tg_client, name)
+            elif is_chat:
+                raise ValueError("чаты читаются через Telegram-аккаунт — подключите его в настройках")
+            else:
+                orders = await sources.fetch_tg_channel(session, name)
             db.set_tg_source(name, last_error="", last_count=len(orders))
             batches.append((f"TG @{name}", orders, is_chat))
         except ValueError as e:
@@ -80,12 +83,13 @@ async def daily_messages(bot: Bot) -> None:
 
 
 async def poll_forever(bot: Bot | None) -> None:
-    tg_client = await tg_user.start()
-    logging.info("Telegram-чаты: %s", "аккаунт подключён" if tg_client else "аккаунт не подключён (только каналы)")
+    await tg_user.start()
+    logging.info("Telegram: %s", "аккаунт подключён" if tg_user.CLIENT else "аккаунт не подключён (каналы через t.me/s)")
     async with aiohttp.ClientSession() as session:
         while True:
             try:
-                found = await poll_once(session, bot, tg_client)
+                # аккаунт могут подключить или отключить в админке на ходу — берём текущий
+                found = await poll_once(session, bot, tg_user.CLIENT)
                 logging.info("Проверка бирж: новых подходящих заказов — %s", found)
                 if bot:
                     await daily_messages(bot)

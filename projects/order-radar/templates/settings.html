@@ -98,8 +98,47 @@
       <button class="btn btn-primary">Добавить</button>
     </form>
     <p class="muted small">Новый источник не присылает старые посты в Telegram — уведомления начнутся со следующего заказа. В чатах заказом считаются только сообщения со словами вроде «нужен», «ищу», «бюджет».</p>
-    <div class="row"><span class="status-dot {{ '' if tg_account else 'off' }}"></span>
-      <span class="small">Аккаунт для чатов: {{ "подключён" if tg_account else "не подключён — см. README, раздел «Telegram-чаты»" }}</span></div>
+  </section>
+
+  <section class="card stack" id="tg-account" style="grid-column: 1 / -1">
+    <h2>Telegram-аккаунт для парсинга
+      <span class="badge {{ 'kw' if tg_name else '' }}">{{ "подключён: " ~ tg_name if tg_name else "не подключён" }}</span></h2>
+    {% if tg_msg %}<p class="{{ 'flash' if tg_msg.startswith('Ошибка') else 'muted' }}" role="status">{{ tg_msg }}</p>{% endif %}
+
+    {% if tg_name %}
+      <p class="muted small">Все каналы и чаты из списка выше читаются через этот аккаунт — так видны и закрытые каналы, в которых он состоит. Аккаунт только читает, ничего не отправляет.</p>
+      <form method="post" action="/tg/account" data-confirm="Отключить аккаунт? Сессия будет завершена на серверах Telegram.">
+        <input type="hidden" name="action" value="logout"><button class="btn btn-danger btn-sm">Отключить аккаунт</button>
+      </form>
+
+    {% elif tg_step == "code" %}
+      <form method="post" action="/tg/account" class="row">
+        <input type="hidden" name="action" value="code">
+        <label class="inline">Код из Telegram<input name="code" inputmode="numeric" autocomplete="one-time-code" required style="max-width: 160px"></label>
+        <button class="btn btn-primary">Подтвердить</button>
+      </form>
+      <form method="post" action="/tg/account"><input type="hidden" name="action" value="cancel"><button class="btn btn-ghost btn-sm">Отмена</button></form>
+
+    {% elif tg_step == "password" %}
+      <form method="post" action="/tg/account" class="row">
+        <input type="hidden" name="action" value="password">
+        <label class="inline">Пароль двухэтапной защиты<input name="password" type="password" autocomplete="current-password" required style="max-width: 220px"></label>
+        <button class="btn btn-primary">Войти</button>
+      </form>
+      <form method="post" action="/tg/account"><input type="hidden" name="action" value="cancel"><button class="btn btn-ghost btn-sm">Отмена</button></form>
+
+    {% else %}
+      <p class="muted small">Подключите <b>отдельный</b> аккаунт, а не основной: если Telegram ограничит его за частые запросы, основной не пострадает.
+        Ключи приложения: <a href="https://my.telegram.org" target="_blank" rel="noopener">my.telegram.org</a> → API development tools → создать приложение.</p>
+      <form method="post" action="/tg/account" class="form-grid">
+        <input type="hidden" name="action" value="send_code">
+        <label>api_id<input name="api_id" value="{{ tg_api_id }}" inputmode="numeric" required autocomplete="off"></label>
+        <label>api_hash<input name="api_hash" type="password" autocomplete="off" {{ '' if tg_api_hash_set else 'required' }}
+          placeholder="{{ 'сохранён — можно не вводить' if tg_api_hash_set else '' }}"></label>
+        <label>Номер телефона аккаунта<input name="phone" type="tel" placeholder="+79991234567" required autocomplete="off"></label>
+        <div class="row" style="align-items: end"><button class="btn btn-primary">Получить код</button></div>
+      </form>
+    {% endif %}
   </section>
 </div>
 

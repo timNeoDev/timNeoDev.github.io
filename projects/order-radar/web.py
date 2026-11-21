@@ -4,7 +4,7 @@ import hashlib
 import hmac
 from datetime import date, datetime
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from aiohttp import web
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -135,11 +135,15 @@ async def orders(request: web.Request):
     q = request.query.get("q", "").strip()
     budget = to_int(request.query.get("budget"))
     hot_only = request.query.get("hot") == "1"
+    sort = "fresh" if request.query.get("sort") == "fresh" else "chance"
     now = sources.msk_now()
-    items = [(o, sources.is_hot(o, now)) for o in db.list_orders(view, q=q, min_budget=budget)]
+    items = [(o, sources.is_hot(o, now), sources.chance(o, now)) for o in db.list_orders(view, q=q, min_budget=budget)]
     if hot_only:
-        items = [(o, h) for o, h in items if h]
-    return render(request, "orders.html", items=items, view=view, q=q, budget=budget, hot_only=hot_only)
+        items = [i for i in items if i[1]]
+    if sort == "chance":
+        items.sort(key=lambda i: -i[2])  # список из базы уже по новизне — сортировка устойчива
+    return render(request, "orders.html", items=items, view=view, q=q, budget=budget, hot_only=hot_only, sort=sort,
+                  chance_label=sources.chance_label)
 
 
 async def order_status(request: web.Request):
@@ -269,9 +273,12 @@ async def template_delete(request: web.Request):
 # ---------- Настройки и аккаунты бирж ----------
 
 async def settings(request: web.Request):
+    api_id, api_hash = tg_user.credentials()
     return render(request, "settings.html", plus=db.get_words("plus"), minus=db.get_words("minus"),
                   accounts=db.list_accounts(), exchanges=db.EXCHANGES, s=db.overview(),
-                  tg_sources=db.list_tg_sources(), tg_kinds=db.TG_KINDS, tg_account=tg_user.is_configured(),
+                  tg_sources=db.list_tg_sources(), tg_kinds=db.TG_KINDS,
+                  tg_name=await tg_user.account_name(), tg_step=tg_user.login_step(),
+                  tg_api_id=api_id or "", tg_api_hash_set=bool(api_hash), tg_msg=request.query.get("tg_msg", ""),
                   tg_error=request.query.get("tg_error", ""),
                   follow_up_days=db.int_setting("follow_up_days"), min_budget=db.min_budget(),
                   last_poll=db.get_setting("last_poll"), last_error=db.get_setting("last_error"))
@@ -348,6 +355,34 @@ async def tg_action(request: web.Request):
     raise web.HTTPFound("/settings#telegram")
 
 
+async def tg_account(request: web.Request):
+    """Подключение отдельного Telegram-аккаунта для парсинга: код → пароль → готово; или отключение."""
+    from telethon.errors import RPCError
+    form = await request.post()
+    action, msg = str(form.get("action")), ""
+    try:
+        if action == "send_code":
+            api_hash = str(form.get("api_hash", "")) or tg_user.credentials()[1]  # пусто — оставить сохранённый
+            await tg_user.send_code(str(form.get("api_id", "")), api_hash, str(form.get("phone", "")))
+            msg = "Код отправлен в Telegram на этот номер"
+        elif action == "code":
+            msg = "Аккаунт подключён" if await tg_user.verify_code(str(form.get("code", ""))) \
+                else "Включена двухэтапная защита — введите пароль"
+        elif action == "password":
+            await tg_user.verify_password(str(form.get("password", "")))
+            msg = "Аккаунт подключён"
+        elif action == "cancel":
+            await tg_user.cancel_login()
+        elif action == "logout":
+            await tg_user.logout()
+            msg = "Аккаунт отключён, сессия завершена"
+        else:
+            raise web.HTTPBadRequest()
+    except (ValueError, RPCError, ConnectionError) as e:
+        msg = f"Ошибка: {e}"
+    raise web.HTTPFound(f"/settings?tg_msg={quote(msg)}#tg-account")
+
+
 def create_app() -> web.Application:
     app = web.Application(middlewares=[auth])
     app.add_routes([
@@ -366,7 +401,7 @@ def create_app() -> web.Application:
         web.post("/templates/{id:\\d+}/delete", template_delete),
         web.get("/settings", settings), web.post("/settings/words", words_add),
         web.post("/settings/words/delete", words_delete), web.post("/settings/general", general_save),
-        web.post("/accounts", account_action), web.post("/tg", tg_action),
+        web.post("/accounts", account_action), web.post("/tg", tg_action), web.post("/tg/account", tg_account),
     ])
     app.router.add_static("/static/", BASE / "static")
     return app
