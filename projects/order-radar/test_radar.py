@@ -39,6 +39,14 @@ assert not sources.is_hot({**o, "offers": 10}, pub)                 # слишк
 assert filter_order(o, ["бот"], [], 0) == ["бот"]
 assert filter_order(o, ["бот"], ["запис"], 0) == []                # минус-слово отбрасывает
 assert filter_order(o, ["бот"], [], 10000) == []                   # бюджет ниже минимума
+# случаи из реальных данных Kwork:
+verstka = {**o, "title": "Верстка страниц сайта на WordPress", "description": "Сверстать по готовому дизайну",
+           "category": "Создание сайта"}
+assert filter_order(verstka, ["сайт"], ["дизайн"], 0) == ["сайт"]   # минус-слово только в описании — не мешает
+excel = {**o, "title": "Макросы в Excel", "description": "Автоматизировать отчёт", "category": "Скрипты, боты и mini apps"}
+assert filter_order(excel, ["бот", "mini app"], [], 0) == []        # совпадение только по категории не считается
+tg_post = {**o, "source": "TG @chan", "title": "👔 Маркетолог", "description": "#вакансия, нужен опыт с ботами"}
+assert filter_order(tg_post, ["бот"], ["вакансия"], 0) == []        # в Telegram минус-слово ищется по всему тексту
 
 # --- база: заказы ---
 db.DB_PATH = os.path.join(tempfile.mkdtemp(), "test.db")

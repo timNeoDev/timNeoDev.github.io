@@ -33,9 +33,15 @@ def match(text: str, words: list[str]) -> list[str]:
 
 
 def filter_order(o: dict, plus: list[str], minus: list[str], min_budget: int) -> list[str]:
-    """Ключевые слова, по которым заказ подходит; пустой список — заказ не подходит."""
-    text = f"{o['title']} {o['description']} {o['category']}"
-    if match(text, minus) or (min_budget and o["budget"] < min_budget):
+    """Ключевые слова, по которым заказ подходит; пустой список — заказ не подходит.
+    Минус-слова на биржах — только в названии: в описании «дизайн» или «вакансия» часто стоят и у нужных заказов
+    («верстка по готовому дизайну»). У постов Telegram «названия» нет (первая строка — «👔 Маркетолог»),
+    поэтому там минус-слова ищутся по всему тексту.
+    Категорию не смотрим: «Скрипты, боты и mini apps» совпадает со «бот» у любого заказа.
+    """
+    text = f"{o['title']} {o['description']}"
+    minus_scope = text if o["source"].startswith("TG ") else o["title"]
+    if match(minus_scope, minus) or (min_budget and o["budget"] < min_budget):
         return []
     return match(text, plus)
 
