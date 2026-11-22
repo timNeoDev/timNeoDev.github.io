@@ -77,6 +77,8 @@ pairs = profi.parse_cookie(f"cookie: a=1; prfr_bo_tkn={jwt}; b=x=y")
 assert pairs == {"a": "1", "prfr_bo_tkn": jwt, "b": "x=y"} and profi.build_cookie(pairs).startswith("a=1; prfr")
 assert profi.token_left(pairs, now=400) == 600 and profi.token_left({}, now=0) == float("-inf")
 assert "Profi.ru".startswith(sources.UNKNOWN_OFFERS)                                 # число откликов неизвестно
+assert sources.counts(p) == ("?", "?") and sources.counts({"source": "Kwork", "views": 5, "offers": 2}) == ("5", "2")
+assert sources.counts({"source": "TG @x", "views": 40, "offers": 0}) == ("40", "?")
 # вход по СМС: номер в формате сайта, маска для админки, ошибки шага
 assert profi.normalize_phone("8 (912) 345-67-89") == profi.normalize_phone("+79123456789") == "+7 912 345 67 89"
 assert profi.normalize_phone("9123456789") == "+7 912 345 67 89" and profi.mask_phone("+7 912 345 67 89") == "+7 *** *** ** 89"
@@ -118,6 +120,8 @@ assert "бот" in db.get_words("plus") and "дизайн" in db.get_words("minu
 assert {a["exchange"]: a["enabled"] for a in db.list_accounts()} == {"Kwork": 1, "FL.ru": 1, "Profi.ru": 0}
 oid = db.upsert_order(o, ["бот"])
 assert oid and db.upsert_order({**o, "views": 99, "offers": 5}, ["бот"]) is None
+db.upsert_order({**o, "views": 0, "offers": 0}, ["бот"])                             # источник не отдал цифры
+assert (db.get_order(oid)["views"], db.get_order(oid)["offers"]) == (99, 5)           # нулями не затёрто
 assert db.get_order(oid)["views"] == 99 and db.get_order(oid)["offers"] == 5
 
 # --- аккаунты бирж: цена отклика, подключение, отключение ---

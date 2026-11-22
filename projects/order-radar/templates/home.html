@@ -72,7 +72,7 @@
       {% for o in hot %}
         <div class="row">
           <a class="order-title small-title" href="/orders/{{ o.id }}">{{ o.title }}</a>
-          <span class="spacer"></span><span class="price">{{ o.budget | rub }}</span><span class="badge">💬 {{ "?" if o.source.startswith(UNKNOWN_OFFERS) else o.offers }}</span>
+          <span class="spacer"></span><span class="price">{{ o.budget | rub }}</span><span class="badge">💬 {{ counts(o)[1] }}</span>
         </div>
       {% endfor %}
       </div>

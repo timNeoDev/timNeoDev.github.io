@@ -274,8 +274,9 @@ def upsert_order(o: dict, matched: list[str]) -> int | None:
         )
         if cur.rowcount:
             return cur.lastrowid
-        conn.execute("UPDATE orders SET views = ?, offers = ?, budget = ?, budget_max = ? WHERE link = ?",
-                     (o["views"], o["offers"], o["budget"], o["budget_max"], o["link"]))
+        # просмотры и отклики только растут — не затираем нулями, если источник их в этот раз не отдал
+        conn.execute("UPDATE orders SET views = MAX(views, ?), offers = MAX(offers, ?), budget = ?, budget_max = ? "
+                     "WHERE link = ?", (o["views"], o["offers"], o["budget"], o["budget_max"], o["link"]))
         return None
 
 

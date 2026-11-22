@@ -46,7 +46,7 @@ def format_order(o) -> str:
     budget = f"<b>{rub(o['budget'])}</b>" if o["budget"] else "<b>договорная</b>"
     if o["budget_max"] > o["budget"]:
         budget += f" · до {rub(o['budget_max'])}"
-    offers = "?" if o["source"].startswith(sources.UNKNOWN_OFFERS) else o["offers"]
+    views, offers = sources.counts(o)
     lines = []
     if sources.is_hot(o, now):
         lines.append("🔥 <b>ГОРЯЧИЙ ЗАКАЗ</b>")
@@ -55,7 +55,7 @@ def format_order(o) -> str:
         "",
         f"💰 {budget}",
         f"📍 {escape(o['source'])}" + (f" · {escape(o['category'])}" if o["category"] else ""),
-        f"👁 {o['views']}   💬 откликов: {offers}   🎯 шанс: <b>{sources.chance_label(score)}</b> ({sources.ten(score)}/10)",
+        f"👁 {views}   💬 откликов: {offers}   🎯 шанс: <b>{sources.chance_label(score)}</b> ({sources.ten(score)}/10)",
     ]
     if (delay := sources.field(o, "delay_sec")) is not None:
         lines.append(f"⚡ дошёл за <b>{fmt_delay(delay)}</b> после публикации")
@@ -84,9 +84,10 @@ def order_kb(o):
     kb.button(text="💡 Совет ИИ", callback_data=f"adv:{o['id']}")
     kb.button(text="💬 Ответ заказчику", callback_data=f"ask:{o['id']}")
     kb.button(text="📝 Шаблоны", callback_data="tpl")
+    kb.button(text="🔄 Обновить цифры", callback_data=f"upd:{o['id']}")
     if o["status"] == "new":
         kb.button(text="🙈 Скрыть", callback_data=f"st:{o['id']}:hidden")
-    kb.adjust(2, 2, 2, 1)
+    kb.adjust(2, 2, 2, 2)
     return kb.as_markup()
 
 
@@ -357,6 +358,21 @@ async def ai_reply(call: CallbackQuery):
     await call.message.answer(f"✍️ <b>Отклик на «{escape(o['title'][:80])}»</b>\n"
                               f"<i>нажмите на текст, чтобы скопировать</i>\n\n<code>{escape(o['ai_reply'])}</code>",
                               reply_markup=reply_kb(o["id"]))
+
+
+@router.callback_query(F.data.startswith("upd:"))
+async def refresh_numbers(call: CallbackQuery):
+    """Перерисовать уведомление свежими просмотрами, откликами и шансом (радар обновляет их при каждом опросе)."""
+    o = db.get_order(int(call.data.split(":")[1]))
+    if not o:
+        await call.answer("Заказ не найден — база радара была очищена", show_alert=True)
+        return
+    views, offers = sources.counts(o)
+    try:
+        await call.message.edit_text(format_order(o), reply_markup=order_kb(o), disable_web_page_preview=True)
+        await call.answer(f"Сейчас: 👁 {views} · 💬 {offers}")
+    except TelegramBadRequest:  # ничего не изменилось
+        await call.answer(f"Без изменений: 👁 {views} · 💬 {offers}")
 
 
 @router.callback_query(F.data.startswith("rw:"))

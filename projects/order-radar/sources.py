@@ -318,6 +318,15 @@ async def fetch_fl_rss(session: aiohttp.ClientSession) -> list[dict]:
 
 SOURCES = [("Kwork", fetch_kwork), ("FL.ru", fetch_fl)]
 UNKNOWN_OFFERS = ("TG ", "Profi.ru")  # у этих источников число откликов неизвестно (FL — теперь известно из ленты)
+UNKNOWN_VIEWS = ("Profi.ru",)         # Profi не показывает и просмотры
+
+
+def counts(o) -> tuple[str, str]:
+    """Просмотры и отклики для показа: «?», если источник их не сообщает."""
+    source = field(o, "source") or ""
+    views = "?" if source.startswith(UNKNOWN_VIEWS) else str(field(o, "views") or 0)
+    offers = "?" if source.startswith(UNKNOWN_OFFERS) else str(field(o, "offers") or 0)
+    return views, offers
 
 
 # ---------- Telegram ----------
