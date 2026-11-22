@@ -15,6 +15,7 @@ from aiohttp import web
 import ai
 import bot as tg
 import db
+import profi
 import sources
 import tg_user
 from config import (ADMIN_ID, ADMIN_PASSWORD, BACKOFF_SECONDS, BOT_TOKEN, DIGEST_HOUR, FULL_SCAN_SECONDS, KWORK_PAGES,
@@ -42,7 +43,16 @@ async def collect(session: aiohttp.ClientSession, tg_client, full: bool = True
     batches, errors = [], []
     enabled = {a["exchange"] for a in db.list_accounts() if a["enabled"]}
     if "Profi.ru" in enabled:
-        errors.append("Profi.ru: сбор ещё не настроен")
+        try:
+            orders = await profi.fetch(session)  # сам решает, пора ли (не чаще раза в минуту)
+            if orders is not None:
+                batches.append(("Profi.ru", orders, False))
+                db.set_setting("profi_error", "")
+        except profi.ProfiError as e:
+            logging.warning("Profi.ru: %s", e)
+            db.set_setting("profi_error", str(e))
+        if err := db.get_setting("profi_error"):
+            errors.append(f"Profi.ru: {err}")
     for name, fetch in sources.SOURCES:
         if name in enabled and not _paused(name):
             orders = await fetch(session, KWORK_PAGES if full else 1)

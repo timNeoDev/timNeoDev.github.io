@@ -1,0 +1,180 @@
+#prfrtkn:webbo:11e2d875a5d03b92f4cd8c342e3ca70c8101e374:a7b745f54ca986d241e6279fd55bd5cb6698ccc6
+
+      query BoSearchBoardItems($filter: BoSearchFrontFiltersInput!, $useSavedFilter: Boolean, $allVerticals: Boolean, $searchQuery: String, $searchEntities: [BoSearchEntityInput!], $searchId: ID, $nextCursor: String, $pageSize: Int, $boSortUp: Int, $minScore: Float, $coordinates: BoSearchAreaInput, $clusterId: ID, $sort: BoSearchSortEnum) @domain(domains: [BO_BOARD, BO_BOARD_LIST]) {
+  boSearchBoardItems(
+    filter: $filter
+    useSavedFilter: $useSavedFilter
+    allVerticals: $allVerticals
+    searchQuery: $searchQuery
+    searchEntities: $searchEntities
+    searchId: $searchId
+    nextCursor: $nextCursor
+    pageSize: $pageSize
+    boSortUp: $boSortUp
+    minScore: $minScore
+    coordinates: $coordinates
+    clusterId: $clusterId
+    sort: $sort
+  ) {
+    nextCursor
+    serverTs
+    totalCount
+    analytics {
+      boardSearchQuery
+      boardSearchUsed
+    }
+    items {
+      id
+      type
+      ... on BoSearchPremiumBlock {
+        title
+        description
+        buttonLabel
+      }
+      ... on BoSearchPremiumRepeatBlock {
+        title
+      }
+      ... on BoSearchSnippet {
+        ...snippetFieldsCommon
+        isFresh
+        isStandard
+        coordinates {
+          lat
+          lon
+        }
+        clientInfo {
+          name
+        }
+        clientTags {
+          value
+        }
+        badges {
+          id
+          imageKey
+          label
+        }
+        status {
+          text
+          color
+        }
+        schedule
+        images {
+          host
+          width
+          height
+          original
+        }
+      }
+      ... on BoSearchEmptyState {
+        view {
+          title
+          description
+          imageKey
+          button {
+            label
+            actionType
+          }
+        }
+      }
+      ... on BoSearchStories {
+        id
+        type
+      }
+      ... on BoSearchDivider {
+        title
+        button {
+          label
+          actionType
+        }
+      }
+      ... on BoSearchCarousel {
+        snippets {
+          id
+          isFresh
+          ...snippetFieldsCommon
+        }
+      }
+      ... on BoSearchSurvey {
+        id
+        type
+        title
+        surveyKey
+        options {
+          type
+          title
+          formId
+        }
+      }
+      ... on BoSearchAdFoxBanner {
+        adUnitId
+      }
+    }
+  }
+}
+      fragment snippetFieldsCommon on BoSearchSnippet {
+  score
+  title
+  description
+  isReposted
+  lastUpdateDate
+  notice {
+    label
+    color
+    type
+  }
+  analyticsData {
+    caseId
+    score
+  }
+  geo {
+    clientMayCome {
+      address
+      geoplaces {
+        code
+        color
+        distance
+        name
+      }
+      prefix
+      suffix
+    }
+    orderLocation {
+      address
+      geoplaces {
+        code
+        color
+        distance
+        name
+        prepDistance
+      }
+      prefix
+      suffix
+    }
+    remote {
+      address
+      geoplaces {
+        code
+        color
+        distance
+        name
+        prepDistance
+      }
+      prefix
+      suffix
+    }
+  }
+  price {
+    prefix
+    suffix
+    value
+    bonusLabel
+  }
+  secondPrice {
+    prefix
+    suffix
+    value
+  }
+  headerIcon
+  isViewed
+  shouldRequestRefuseReasons
+}

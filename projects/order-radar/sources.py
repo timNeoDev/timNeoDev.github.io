@@ -229,7 +229,7 @@ async def fetch_fl(session: aiohttp.ClientSession, pages: int = 1) -> list[dict]
 
 
 SOURCES = [("Kwork", fetch_kwork), ("FL.ru", fetch_fl)]
-UNKNOWN_OFFERS = ("TG ", "FL.ru")  # у этих источников число откликов неизвестно
+UNKNOWN_OFFERS = ("TG ", "FL.ru", "Profi.ru")  # у этих источников число откликов неизвестно
 
 
 # ---------- Telegram ----------

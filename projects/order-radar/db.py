@@ -227,6 +227,12 @@ def connect_account(exchange: str, login: str, secret: str) -> None:
                      "WHERE exchange = ?", (login.strip(), secret.strip(), exchange))
 
 
+def set_account_secret(exchange: str, secret: str) -> None:
+    """Обновляет данные входа без смены даты подключения (Profi.ru: продлённый токен сессии)."""
+    with closing(_conn()) as conn, conn:
+        conn.execute("UPDATE accounts SET secret = ? WHERE exchange = ?", (secret, exchange))
+
+
 def disconnect_account(exchange: str) -> None:
     """Стирает данные входа и выключает сбор с биржи."""
     with closing(_conn()) as conn, conn:

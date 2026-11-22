@@ -123,7 +123,7 @@ async def analyze(session: aiohttp.ClientSession, order) -> dict:
     if not s["key"]:
         raise AIError("ключ munito.ai не задан — добавьте его в «Настройки → Нейросеть»")
     budget = db.rub(order["budget"]) if order["budget"] else "не указан"
-    offers = "неизвестно" if order["source"].startswith(("TG ", "FL.ru")) else order["offers"]
+    offers = "неизвестно" if order["source"].startswith(("TG ", "FL.ru", "Profi.ru")) else order["offers"]
     prompt = PROMPT.format(about=s["about"], work_style=WORK_STYLE, source=order["source"], title=order["title"], budget=budget,
                            offers=offers, description=(order["description"] or "нет")[:6000])
     result = parse_answer(await chat(session, prompt, s["key"], s["model"]))

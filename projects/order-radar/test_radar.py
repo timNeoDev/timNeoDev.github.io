@@ -29,6 +29,32 @@ assert (o["budget"], o["budget_max"], o["views"], o["offers"]) == (5000, 15000, 
 assert o["description"] == "Нужен бот [срочно] — сегодня"          # теги и &mdash; убраны, скобки не ломают JSON
 assert o["published_at"] == "2026-11-19T21:42:40"                  # дата последней публикации, а не создания
 
+# --- Profi.ru: лента специалиста (структура ответа BoSearchBoardItems) и cookie сессии ---
+import base64, json as _json, profi  # noqa: E401,E402
+snippet = {"id": "96314683", "type": "SNIPPET", "title": "Создание сайтов",
+           "description": "Корпоративный сайт · Контент есть · Нужен сайт для МФО", "lastUpdateDate": 1795373305,
+           "price": {"prefix": "до", "value": "45 000 ₽"}, "geo": {"remote": {"prefix": "Дистанционно · Москва"}},
+           "badges": [{"label": "Топ-заказ"}]}
+feed = {"data": {"boSearchBoardItems": {"items": [
+    {"id": "DIVIDER", "type": "DIVIDER"}, snippet,
+    {"id": "CAROUSEL", "type": "CAROUSEL", "snippets": [{**snippet, "id": "96207094", "price": None}, snippet]},
+    {"id": "STORIES", "type": "STORIES"}]}}}
+p_orders = profi.parse_feed(feed)
+assert [o["link"] for o in p_orders] == ["https://profi.ru/backoffice/n.php?o=96314683",
+                                         "https://profi.ru/backoffice/n.php?o=96207094"]   # дубль из карусели убран
+p = p_orders[0]
+assert (p["source"], p["budget"], p["offers"]) == ("Profi.ru", 45000, 0)
+assert p["description"] == "Корпоративный сайт\nКонтент есть\nНужен сайт для МФО"
+assert p["category"] == "Дистанционно · Москва · Топ-заказ"
+assert p["published_at"] == "2026-11-22T21:48:25"                                     # unix → московское время
+assert p_orders[1]["budget"] == 0
+assert profi.parse_feed({"errors": [{"message": "x"}]}) == []
+jwt = "h." + base64.urlsafe_b64encode(_json.dumps({"exp": 1000}).encode()).decode().rstrip("=") + ".s"
+pairs = profi.parse_cookie(f"cookie: a=1; prfr_bo_tkn={jwt}; b=x=y")
+assert pairs == {"a": "1", "prfr_bo_tkn": jwt, "b": "x=y"} and profi.build_cookie(pairs).startswith("a=1; prfr")
+assert profi.token_left(pairs, now=400) == 600 and profi.token_left({}, now=0) == float("-inf")
+assert "Profi.ru".startswith(sources.UNKNOWN_OFFERS)                                 # число откликов неизвестно
+
 # --- «горячий» заказ ---
 pub = datetime.fromisoformat(o["published_at"])
 assert sources.is_hot(o, pub + timedelta(minutes=30))

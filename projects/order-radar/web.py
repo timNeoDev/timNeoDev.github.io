@@ -389,6 +389,7 @@ async def account_action(request: web.Request):
     elif action == "connect":
         try:
             db.connect_account(exchange, str(form.get("login", "")), str(form.get("secret", "")))
+            db.set_setting("profi_error", "")  # старая ошибка входа больше не актуальна
         except ValueError:
             raise web.HTTPBadRequest(text="Вставьте данные входа")
     elif action == "disconnect":

@@ -20,7 +20,8 @@
       </form>
     </div>
     <p class="muted small">{{ exchanges[a.exchange] }}.
-      {% if a.exchange == "Profi.ru" %}Сбор с Profi.ru заработает после того, как мы вместе настроим вход в ваш аккаунт.{% endif %}</p>
+      {% if a.exchange == "Profi.ru" %}Радар читает ленту заказов вашей анкеты (по выбранным там услугам) раз в минуту и сам продлевает вход.
+      Если на profi.ru нажать «Выйти», cookie перестанет работать — тогда отключите аккаунт и вставьте новую.{% endif %}</p>
 
     {% if a.connected_at %}
       <div class="row"><span class="muted small">Подключён {{ a.connected_at }}{% if a.login %} · {{ a.login }}{% endif %}</span><span class="spacer"></span>
