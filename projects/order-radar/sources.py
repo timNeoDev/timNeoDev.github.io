@@ -96,6 +96,11 @@ def field(o, key: str):
     return o[key] if key in o.keys() else None
 
 
+def ten(score) -> int:
+    """Оценка 0–100 (так она хранится и считается) → баллы из 10 для показа."""
+    return max(0, min(10, round((score or 0) / 10)))
+
+
 def chance_label(score: int) -> str:
     return "высокий" if score >= 70 else "средний" if score >= 40 else "низкий"
 

@@ -25,7 +25,7 @@ EXCHANGES = {"Kwork": "сбор открытых заказов, вход не �
              "FL.ru": "RSS-ленты разделов «Программирование» и «Сайты», вход не нужен",
              "Profi.ru": "заказы видны только после входа в аккаунт"}
 AI_COLUMNS = (("ai_score", "INTEGER"), ("ai_hot", "INTEGER DEFAULT 0"), ("ai_summary", "TEXT"), ("ai_price", "TEXT"),
-              ("ai_days", "TEXT"), ("ai_risks", "TEXT"), ("ai_reply", "TEXT"))
+              ("ai_days", "TEXT"), ("ai_risks", "TEXT"), ("ai_reply", "TEXT"), ("ai_advice", "TEXT"))
 SETTINGS_DEFAULTS = {"min_budget": "0", "tax_rate": "4", "income_goal": "50000", "follow_up_days": "3",
                      "poll_seconds": "30"}
 

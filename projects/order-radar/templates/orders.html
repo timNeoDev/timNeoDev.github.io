@@ -28,9 +28,9 @@
 {% for o, hot, ch in items %}
   <article class="card order">
     <div class="row">
-      <span class="badge chance-{{ chance_label(ch) }}" title="Шанс {{ ch }} из 100: свежесть, число откликов, бюджет">шанс: {{ chance_label(ch) }}</span>
+      <span class="badge chance-{{ chance_label(ch) }}" title="Шанс {{ ten(ch) }} из 10: свежесть, число откликов, бюджет">шанс: {{ chance_label(ch) }}</span>
       {% if hot %}<span class="badge hot">🔥 горячий</span>{% endif %}
-      {% if o.ai_score is not none %}<span class="badge ai" title="Оценка нейросети: насколько заказ вам подходит">🤖 {{ o.ai_score }}/100</span>{% endif %}
+      {% if o.ai_score is not none %}<span class="badge ai" title="Оценка нейросети: насколько заказ вам подходит">🤖 {{ ten(o.ai_score) }}/10</span>{% endif %}
       {% if view == "all" and not o.matched %}<span class="badge">не подходит под фильтры</span>{% endif %}
       {% if view == "all" and o.matched %}<span class="badge">{{ ORDER_STATUSES[o.status] }}</span>{% endif %}
       <a class="order-title" href="/orders/{{ o.id }}">{{ o.title }}</a>

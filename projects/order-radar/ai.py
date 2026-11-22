@@ -1,5 +1,6 @@
 """Нейросеть munito.ai (API в формате OpenAI): разбор заказа, оценка «стоит ли браться», черновик отклика.
 Ключ, модель и текст «о себе» хранятся в настройках базы и меняются в админке."""
+import asyncio
 import json
 import logging
 import re
@@ -36,7 +37,6 @@ WORK_STYLE = """Как он работает: разработку ведёт в
 - цену называй рыночную, за результат, не занижай из-за скорости;
 - главный риск таких заказов — неясное ТЗ, нужен доступ к чужим серверам/аккаунтам, очень большой объём или сжатый срок.
 В отклике заказчику ИИ, нейросети и вайбкодинг не упоминай — пиши от лица разработчика, который берёт задачу и отвечает за результат."""
-TIMEOUT = aiohttp.ClientTimeout(total=90)
 
 PROMPT = """Ты помогаешь фрилансеру отбирать заказы и писать отклики. О фрилансере:
 {about}
@@ -51,7 +51,7 @@ PROMPT = """Ты помогаешь фрилансеру отбирать зак
 {description}
 
 Ответь ТОЛЬКО JSON-объектом без пояснений, на русском:
-{{"score": число 0-100 — насколько заказ подходит фрилансеру и стоит ли за него браться (навыки, реальность бюджета, ясность задачи),
+{{"score": целое число от 1 до 10 — насколько заказ подходит фрилансеру и стоит ли за него браться (навыки, реальность бюджета, ясность задачи); 8-10 — отличный заказ, 5-7 — можно, 1-4 — лучше пропустить,
  "hot": true — если заказ стоит взять прямо сейчас (подходит по навыкам, адекватный бюджет, понятная задача), иначе false,
  "summary": "что нужно сделать, 1-2 коротких предложения",
  "price": "реалистичная цена в рублях, например «8–12 тыс. ₽»",
@@ -79,26 +79,47 @@ def enabled() -> bool:
     return s["enabled"] and bool(s["key"])
 
 
-async def chat(session: aiohttp.ClientSession, prompt: str, key: str, model: str, max_tokens: int = 4000) -> str:
-    """Модели munito сначала «думают» (reasoning, до ~2000 токенов), потом отвечают — лимит с запасом на оба."""
+class _Busy(AIError):
+    """munito перегружен (503) или не ответил вовремя — такое бывает на бесплатном тарифе, стоит повторить."""
+
+
+async def chat(session: aiohttp.ClientSession, prompt: str, key: str, model: str, max_tokens: int = 4000,
+               timeout: float = 90, retries: int = 1) -> str:
+    """Модели munito сначала «думают» (reasoning, до ~2000 токенов), потом отвечают — лимит с запасом на оба.
+    Если munito перегружен или не успел ответить, повторяем через несколько секунд (retries раз)."""
+    for attempt in range(retries + 1):
+        try:
+            return await _chat_once(session, prompt, key, model, max_tokens, timeout)
+        except _Busy:
+            if attempt == retries:
+                raise
+            await asyncio.sleep(4)
+    raise AIError("munito.ai не ответил")  # недостижимо: цикл либо вернул ответ, либо пробросил ошибку
+
+
+async def _chat_once(session, prompt: str, key: str, model: str, max_tokens: int, timeout: float) -> str:
     payload = {"model": model, "messages": [{"role": "user", "content": prompt}],
                "temperature": 0.4, "max_tokens": max_tokens}
     try:
-        async with session.post(API_URL, json=payload, timeout=TIMEOUT,
+        async with session.post(API_URL, json=payload, timeout=aiohttp.ClientTimeout(total=timeout),
                                 headers={"Authorization": f"Bearer {key}"}) as resp:
             body = await resp.text()
             if resp.status == 401:
                 raise AIError("неверный ключ API")
             if resp.status == 429:
                 raise AIError("исчерпан лимит запросов munito.ai, попробую позже")
+            if resp.status in (502, 503, 504):
+                raise _Busy("munito.ai перегружен (бесплатный тариф) — попробуйте через минуту")
             if resp.status >= 400:
                 raise AIError(f"munito.ai ответил {resp.status}: {body[:200]}")
             choice = json.loads(body)["choices"][0]
             if choice.get("finish_reason") == "length" and not (choice["message"].get("content") or "").strip():
                 raise AIError("модель долго рассуждала и не успела ответить — выберите DeepSeek V4.1 Flash")
             return choice["message"]["content"] or ""
-    except (aiohttp.ClientError, TimeoutError) as e:
-        raise AIError(f"нет связи с munito.ai: {e}") from e
+    except TimeoutError as e:
+        raise _Busy(f"munito.ai не ответил за {int(timeout)} сек — бесплатный тариф перегружен, попробуйте позже") from e
+    except aiohttp.ClientError as e:
+        raise AIError(f"нет связи с munito.ai: {e or type(e).__name__}") from e
     except (KeyError, IndexError, TypeError, json.JSONDecodeError) as e:
         raise AIError("непонятный ответ munito.ai") from e
 
@@ -114,7 +135,9 @@ def parse_answer(text: str) -> dict:
     except json.JSONDecodeError as e:
         raise AIError("модель вернула испорченный JSON") from e
     try:
-        score = max(0, min(100, int(float(data.get("score") or 0))))
+        raw = float(data.get("score") or 0)
+        # модель отвечает по шкале 1–10; храним 0–100 (так считается «шанс»), показываем снова из 10
+        score = max(0, min(100, int(round(raw * 10 if raw <= 10 else raw))))
     except (TypeError, ValueError):
         score = 0
     clean = lambda k: str(data.get(k) or "").strip()[:2000]
@@ -137,9 +160,49 @@ async def analyze(session: aiohttp.ClientSession, order) -> dict:
     return result
 
 
+ADVICE_PROMPT = """Ты опытный фрилансер-наставник. Помоги коллеге решить, брать ли заказ, и как его выиграть. О нём:
+{about}
+
+{work_style}
+
+Заказ с биржи {source}:
+Название: {title}
+Бюджет: {budget}
+Откликов уже: {offers}
+Описание:
+{description}
+
+Дай короткий практичный совет на русском, без вступлений, ровно в таком виде (5 строк, каждая с эмодзи):
+🎯 Брать или нет: да/нет/осторожно — и почему, одним предложением.
+💪 На что надавить в отклике: чем зацепить именно этого заказчика.
+❓ Что спросить у заказчика: 1-2 главных вопроса, которые снимут неясности.
+💵 Как назвать цену: стратегия (фикс, этапы, предоплата) и примерная сумма.
+⚠️ Подвох: на что обратить внимание, чтобы не попасть на лишнюю работу или без оплаты.
+Пиши конкретно про этот заказ, до 700 символов всего. Не выдумывай опыт, которого нет в описании фрилансера."""
+
+
+async def advise(session: aiohttp.ClientSession, order) -> str:
+    """Совет «как взять этот заказ». Сохраняется в базе (ai_advice) и возвращается. Ошибка — AIError."""
+    s = settings()
+    if not s["key"]:
+        raise AIError("ключ munito.ai не задан — добавьте его в «Настройки → Нейросеть»")
+    budget = db.rub(order["budget"]) if order["budget"] else "не указан"
+    offers = "неизвестно" if order["source"].startswith(("TG ", "FL.ru", "Profi.ru")) else order["offers"]
+    prompt = ADVICE_PROMPT.format(about=s["about"], work_style=WORK_STYLE, source=order["source"], title=order["title"],
+                                  budget=budget, offers=offers, description=(order["description"] or "нет")[:6000])
+    text = re.sub(r"<think>.*?</think>", "", await chat(session, prompt, s["key"], s["model"]), flags=re.S).strip()
+    if not text:
+        raise AIError("модель вернула пустой совет — попробуйте ещё раз")
+    text = text[:1500]
+    db.save_ai(order["id"], {"ai_advice": text})
+    db.set_setting("ai_error", "")
+    return text
+
+
 async def check_key(session: aiohttp.ClientSession, key: str, model: str) -> str:
     """Короткий запрос для проверки ключа. Возвращает ответ модели или бросает AIError."""
-    return (await chat(session, "Ответь одним словом: работает", key, model, max_tokens=300)).strip()[:100]
+    return (await chat(session, "Ответь одним словом: работает", key, model, max_tokens=300,
+                       timeout=25, retries=0)).strip()[:100]
 
 
 async def safe_analyze(session: aiohttp.ClientSession, order) -> dict | None:

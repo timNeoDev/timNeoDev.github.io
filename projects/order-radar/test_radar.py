@@ -286,6 +286,9 @@ parsed = ai.parse_answer('<think>хм</think>```json\n{"score": "87", "hot": tru
                          '"price": "10 тыс. ₽", "days": "3 дня", "risks": "", "reply": "Здравствуйте!"}\n```')
 assert parsed["ai_score"] == 87 and parsed["ai_hot"] == 1 and parsed["ai_reply"] == "Здравствуйте!"
 assert ai.parse_answer('{"score": 500, "hot": "нет"}')["ai_score"] == 100           # оценка в пределах 0–100
+assert ai.parse_answer('{"score": 7}')["ai_score"] == 70                              # модель отвечает из 10
+assert ai.parse_answer('{"score": "8.5"}')["ai_score"] == 85
+assert [sources.ten(x) for x in (0, 44, 45, 87, 100, None)] == [0, 4, 4, 9, 10, 0]   # показ «из 10»
 try:
     ai.parse_answer("не JSON")
     raise AssertionError("ответ без JSON должен давать AIError")
@@ -294,7 +297,7 @@ except ai.AIError:
 db.save_ai(oid, {**parsed, "ai_hot": 1})
 db.set_delay(oid, 17)
 text = bot.format_order(db.get_order(oid))
-assert "🤖 <b>ИИ: 87/100</b>" in text and "дошёл за <b>17 сек</b>" in text and "<blockquote expandable>" in text
+assert "🤖 <b>ИИ: 9/10</b>" in text and "дошёл за <b>17 сек</b>" in text and "<blockquote expandable>" in text
 assert "ГОРЯЧИЙ" in text or db.get_order(oid)["published_at"] < (sources.msk_now() - timedelta(days=1)).isoformat()
 assert any(b.callback_data == f"ai:{oid}" for row in bot.order_kb(db.get_order(oid)).inline_keyboard for b in row)
 assert bot.fmt_delay(75) == "1 мин 15 сек" and 0 <= db.avg_delay() <= 17   # в опросе выше тоже засечена доставка
@@ -384,7 +387,13 @@ async def check_web():
         page = await (await client.get(f"/orders/{oid}")).text()
         assert "Откликнуться на бирже" in page and "Копировать" in page                     # страница заказа
         assert "🤖 Разбор нейросетью" in page and "Здравствуйте!" in page                  # разбор ИИ на странице
-        assert "🤖 87/100" in await (await client.get("/orders?view=all")).text()
+        assert "🤖 9/10" in await (await client.get("/orders?view=all")).text()
+        db.set_setting("ai_key", "test-key-123")
+        assert "💡 Получить совет" in await (await client.get(f"/orders/{oid}")).text()   # блок совета ИИ
+        db.save_ai(oid, {"ai_advice": "🎯 Брать: да"})
+        assert "🎯 Брать: да" in await (await client.get(f"/orders/{oid}")).text()
+        assert (await client.post("/orders/99999/advice", allow_redirects=False)).status == 404
+        db.set_setting("ai_key", "")
         resp = await client.post("/orders/99999/ai", allow_redirects=False)
         assert resp.status == 404
         resp = await client.post("/settings/ai", data={"model": ai.DEFAULT_MODEL, "about": "Тим", "enabled": "1"},

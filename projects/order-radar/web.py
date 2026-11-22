@@ -43,7 +43,8 @@ def ago(iso: str | None) -> str:
 
 env.filters.update(rub=db.rub, ago=ago, month_label=lambda ym: MONTHS[int(ym[5:7]) - 1])
 env.globals.update(STAGES=db.STAGES, STAGE_GROUPS=db.STAGE_GROUPS, RESPONSE_STAGES=db.RESPONSE_STAGES,
-                   WORK_STAGES=db.WORK_STAGES, ORDER_STATUSES=db.ORDER_STATUSES, FINANCE_TABS=FINANCE_TABS)
+                   WORK_STAGES=db.WORK_STAGES, ORDER_STATUSES=db.ORDER_STATUSES, FINANCE_TABS=FINANCE_TABS,
+                   ten=sources.ten)
 
 
 def render(request: web.Request, name: str, **ctx) -> web.Response:
@@ -202,6 +203,20 @@ async def order_ai(request: web.Request):
     except ai.AIError as e:
         msg = f"Ошибка: {e}"
     raise web.HTTPFound(f"/orders/{o['id']}" + (f"?ai_msg={quote(msg)}" if msg else "") + "#ai")
+
+
+async def order_advice(request: web.Request):
+    """Совет нейросети по заказу (или новый совет)."""
+    o = db.get_order(int(request.match_info["id"]))
+    if not o:
+        raise web.HTTPNotFound(text="Заказ не найден — возможно, база радара была очищена")
+    msg = ""
+    try:
+        async with aiohttp.ClientSession() as session:
+            await ai.advise(session, o)
+    except ai.AIError as e:
+        msg = f"Ошибка: {e}"
+    raise web.HTTPFound(f"/orders/{o['id']}" + (f"?ai_msg={quote(msg)}" if msg else "") + "#advice")
 
 
 # ---------- Сделки ----------
@@ -366,6 +381,7 @@ async def ai_save(request: web.Request):
         raise web.HTTPFound(f"/settings?ai_msg={quote(msg)}#ai")
     if key:  # пустое поле — оставить сохранённый ключ
         db.set_setting("ai_key", key)
+        db.set_setting("ai_error", "")  # старая ошибка (например, «ключ не задан») больше не актуальна
     model = str(form.get("model", ""))
     if model in ai.MODELS:
         db.set_setting("ai_model", model)
@@ -485,7 +501,7 @@ def create_app() -> web.Application:
         web.get("/", home), web.get("/analytics", analytics), web.get("/clients", clients), web.get("/search", search),
         web.get("/orders", orders), web.post("/orders/status", order_status),
         web.post("/orders/{id:\\d+}/respond", order_respond), web.get("/orders/{id:\\d+}", order_page),
-        web.post("/orders/{id:\\d+}/ai", order_ai), web.post("/settings/ai", ai_save),
+        web.post("/orders/{id:\\d+}/ai", order_ai), web.post("/orders/{id:\\d+}/advice", order_advice), web.post("/settings/ai", ai_save),
         web.get("/deals", deals),
         web.get("/deals/new", deal_page), web.post("/deals/new", deal_page),
         web.get("/deals/{id:\\d+}", deal_page), web.post("/deals/{id:\\d+}", deal_page),

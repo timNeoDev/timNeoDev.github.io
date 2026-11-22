@@ -54,14 +54,14 @@ def format_order(o) -> str:
         "",
         f"💰 {budget}",
         f"📍 {escape(o['source'])}" + (f" · {escape(o['category'])}" if o["category"] else ""),
-        f"👁 {o['views']}   💬 откликов: {offers}   🎯 шанс: <b>{sources.chance_label(score)}</b> ({score})",
+        f"👁 {o['views']}   💬 откликов: {offers}   🎯 шанс: <b>{sources.chance_label(score)}</b> ({sources.ten(score)}/10)",
     ]
     if (delay := sources.field(o, "delay_sec")) is not None:
         lines.append(f"⚡ дошёл за <b>{fmt_delay(delay)}</b> после публикации")
     if o["description"]:
         lines += ["", f"<blockquote expandable>{escape(shorten(o['description'], 2500))}</blockquote>"]
     if sources.field(o, "ai_score") is not None:
-        lines += ["", f"🤖 <b>ИИ: {o['ai_score']}/100</b> — {escape(o['ai_summary'] or '')}"]
+        lines += ["", f"🤖 <b>ИИ: {sources.ten(o['ai_score'])}/10</b> — {escape(o['ai_summary'] or '')}"]
         if o["ai_price"] or o["ai_days"]:
             lines.append(f"💵 {escape(o['ai_price'] or '—')}   ⏳ {escape(o['ai_days'] or '—')}")
         if o["ai_risks"]:
@@ -78,10 +78,11 @@ def order_kb(o):
     else:
         kb.button(text=f"{db.ORDER_STATUSES[o['status']]} · вернуть", callback_data=f"st:{o['id']}:new")
     kb.button(text="✍️ Отклик от ИИ", callback_data=f"ai:{o['id']}")
+    kb.button(text="💡 Совет ИИ", callback_data=f"adv:{o['id']}")
     kb.button(text="📝 Шаблоны", callback_data="tpl")
     if o["status"] == "new":
         kb.button(text="🙈 Скрыть", callback_data=f"st:{o['id']}:hidden")
-    kb.adjust(2, 2, 1)
+    kb.adjust(2, 2, 2)
     return kb.as_markup()
 
 
@@ -303,6 +304,31 @@ async def ai_reply(call: CallbackQuery):
         await call.answer()
     await call.message.answer(f"✍️ <b>Отклик на «{escape(o['title'][:80])}»</b>\n"
                               f"<i>нажмите на текст, чтобы скопировать</i>\n\n<code>{escape(o['ai_reply'])}</code>")
+
+
+@router.callback_query(F.data.startswith("adv:"))
+async def ai_advice(call: CallbackQuery):
+    """Совет нейросети: брать ли заказ, на что надавить, что спросить, как назвать цену, где подвох."""
+    o = db.get_order(int(call.data.split(":")[1]))
+    if not o:
+        await call.answer("Заказ не найден — база радара была очищена", show_alert=True)
+        return
+    text = sources.field(o, "ai_advice")
+    if not text:
+        if not ai.settings()["key"]:
+            await call.answer("Добавьте ключ munito.ai в админке: Настройки → Нейросеть", show_alert=True)
+            return
+        await call.answer("💡 Думаю над заказом, 5–20 секунд…")
+        try:
+            async with aiohttp.ClientSession() as session:
+                text = await ai.advise(session, o)
+        except ai.AIError as e:
+            await call.message.answer(f"🤖 Не получилось: {escape(str(e))}")
+            return
+    else:
+        await call.answer()
+    await call.message.answer(f"💡 <b>Совет по заказу «{escape(o['title'][:80])}»</b>\n\n{escape(text)}",
+                              disable_web_page_preview=True)
 
 
 @router.callback_query(F.data == "tpl")

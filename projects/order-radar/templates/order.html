@@ -6,7 +6,7 @@
     <p><a href="/orders" class="muted small">← Все заказы</a></p>
     <h1>{{ o.title }}</h1>
     <div class="row" style="margin-top: 8px">
-      <span class="badge chance-{{ chance_label }}" title="Шанс {{ score }} из 100: свежесть, число откликов, бюджет">шанс: {{ chance_label }}</span>
+      <span class="badge chance-{{ chance_label }}" title="Шанс {{ ten(score) }} из 10: свежесть, число откликов, бюджет">шанс: {{ chance_label }}</span>
       {% if hot %}<span class="badge hot">🔥 горячий</span>{% endif %}
       <span class="badge">{{ ORDER_STATUSES[o.status] }}</span>
       {% for w in o.matched.split(",") if w %}<span class="badge kw">{{ w }}</span>{% endfor %}
@@ -44,7 +44,7 @@
   <div class="stack">
   <section class="card stack ai-box" id="ai">
     <h2>🤖 Разбор нейросетью
-      {% if o.ai_score is not none %}<span class="badge ai">{{ o.ai_score }}/100{% if o.ai_hot %} · брать сейчас{% endif %}</span>{% endif %}</h2>
+      {% if o.ai_score is not none %}<span class="badge ai">{{ ten(o.ai_score) }}/10{% if o.ai_hot %} · брать сейчас{% endif %}</span>{% endif %}</h2>
     {% if ai_msg %}<p class="flash" role="alert">{{ ai_msg }}</p>{% endif %}
     {% if o.ai_score is not none %}
       <p>{{ o.ai_summary }}</p>
@@ -64,6 +64,19 @@
       <p class="muted">Добавьте ключ munito.ai в <a href="/settings#ai">Настройки → Нейросеть</a>, и здесь появится разбор заказа и готовый отклик.</p>
     {% endif %}
   </section>
+
+  {% if ai_key %}
+  <section class="card stack ai-box" id="advice">
+    <h2>💡 Совет ИИ</h2>
+    {% if o.ai_advice %}
+      <p class="tpl-body">{{ o.ai_advice }}</p>
+      <form method="post" action="/orders/{{ o.id }}/advice"><button class="btn btn-sm">↻ Другой совет</button></form>
+    {% else %}
+      <p class="muted">Брать ли заказ, на что надавить в отклике, что спросить у заказчика, как назвать цену и где подвох.</p>
+      <form method="post" action="/orders/{{ o.id }}/advice"><button class="btn btn-primary">💡 Получить совет</button></form>
+    {% endif %}
+  </section>
+  {% endif %}
 
   <section class="card stack">
     <h2>Шаблоны откликов <a href="/templates">изменить →</a></h2>
