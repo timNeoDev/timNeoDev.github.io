@@ -54,6 +54,19 @@ pairs = profi.parse_cookie(f"cookie: a=1; prfr_bo_tkn={jwt}; b=x=y")
 assert pairs == {"a": "1", "prfr_bo_tkn": jwt, "b": "x=y"} and profi.build_cookie(pairs).startswith("a=1; prfr")
 assert profi.token_left(pairs, now=400) == 600 and profi.token_left({}, now=0) == float("-inf")
 assert "Profi.ru".startswith(sources.UNKNOWN_OFFERS)                                 # число откликов неизвестно
+# вход по СМС: номер в формате сайта, маска для админки, ошибки шага
+assert profi.normalize_phone("8 (912) 345-67-89") == profi.normalize_phone("+79123456789") == "+7 912 345 67 89"
+assert profi.normalize_phone("9123456789") == "+7 912 345 67 89" and profi.mask_phone("+7 912 345 67 89") == "+7 *** *** ** 89"
+for bad in ("12345", "+7 495 123-45-67", ""):
+    try:
+        profi.normalize_phone(bad)
+        raise AssertionError(bad)
+    except profi.ProfiError:
+        pass
+assert profi._result_error({"__typename": "AuthStrategyResultRetry",
+                            "answer": {"errors": [{"message": "Неверный код"}]}}) == "Неверный код"
+assert profi._result_error({"__typename": "AuthStrategyResultSuccess"}) is None
+assert not profi.login_pending()
 
 # --- «горячий» заказ ---
 pub = datetime.fromisoformat(o["published_at"])
@@ -383,6 +396,28 @@ async def check_web():
         assert ai.looks_like_key("sk-munito_AbC123xyz") and not ai.looks_like_key("a=1; b=2")
         resp = await client.post("/accounts", data={"exchange": "Profi.ru", "action": "connect", "secret": "sk-key123"})
         assert resp.status == 400 and not (db.get_account("Profi.ru")["secret"] or "")      # ключ вместо cookie Profi
+        # вход в Profi по СМС из админки (сеть подменена: проверяем маршрут и шаблон)
+        assert "Войти по СМС" in await (await client.get("/settings")).text()
+        async def fake_start(phone):
+            profi._login.update(pairs={}, strategy="s", step="t", phone=profi.normalize_phone(phone),
+                                until=profi.time.monotonic() + 60)
+            return profi.mask_phone(phone)
+        async def fake_finish(code):
+            if code != "1234":
+                raise profi.ProfiError("Неверный код")
+            profi.login_cancel()
+            return "+7 *** *** ** 89"
+        real = profi.login_start, profi.login_finish
+        profi.login_start, profi.login_finish = fake_start, fake_finish
+        resp = await client.post("/accounts/profi-login", data={"action": "send_code", "phone": "89123456789"})
+        page = await resp.text()
+        assert "Код из СМС на +7 *** *** ** 89" in page and "Код отправлен" in page
+        assert "Неверный код" in await (await client.post("/accounts/profi-login",
+                                                           data={"action": "code", "code": "0000"})).text()
+        assert "cookie обновлена" in await (await client.post("/accounts/profi-login",
+                                                               data={"action": "code", "code": "1234"})).text()
+        profi.login_start, profi.login_finish = real
+        assert "Код из СМС" not in await (await client.get("/settings")).text()
         assert "Нейросеть munito.ai" in await (await client.get("/settings")).text()
         assert (await client.get("/orders/99999")).status == 404
         resp = await client.post(f"/orders/{oid}/respond", allow_redirects=False)

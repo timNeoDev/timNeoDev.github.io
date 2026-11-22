@@ -12,6 +12,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 import ai
 import db
+import profi
 import sources
 import tg_user
 from config import ADMIN_PASSWORD
@@ -324,6 +325,7 @@ async def settings(request: web.Request):
                   poll_seconds=db.int_setting("poll_seconds"),
                   ai=ai.settings(), ai_models=ai.MODELS, ai_work_style=ai.WORK_STYLE, ai_msg=request.query.get("ai_msg", ""),
                   ai_error=db.get_setting("ai_error"),
+                  profi_pending=profi.login_pending(), profi_msg=request.query.get("profi_msg", ""),
                   last_poll=db.get_setting("last_poll"), last_error=db.get_setting("last_error"))
 
 
@@ -408,6 +410,25 @@ async def account_action(request: web.Request):
     raise web.HTTPFound("/settings#accounts")
 
 
+async def profi_login(request: web.Request):
+    """Вход в Profi.ru по СМС прямо из админки: телефон → код → радар сам сохраняет новую cookie."""
+    form = await request.post()
+    action = str(form.get("action"))
+    try:
+        if action == "send_code":
+            msg = f"Код отправлен в СМС на {await profi.login_start(str(form.get('phone', '')))} — введите его ниже"
+        elif action == "code":
+            msg = f"Готово: вошли в Profi.ru ({await profi.login_finish(str(form.get('code', '')))}), cookie обновлена ✓"
+        elif action == "cancel":
+            profi.login_cancel()
+            msg = "Вход отменён"
+        else:
+            raise web.HTTPBadRequest()
+    except profi.ProfiError as e:
+        msg = f"Ошибка: {e}"
+    raise web.HTTPFound(f"/settings?profi_msg={quote(msg)}#accounts")
+
+
 async def tg_action(request: web.Request):
     form = await request.post()
     action = str(form.get("action"))
@@ -476,7 +497,7 @@ def create_app() -> web.Application:
         web.post("/templates/{id:\\d+}/delete", template_delete),
         web.get("/settings", settings), web.post("/settings/words", words_add),
         web.post("/settings/words/delete", words_delete), web.post("/settings/general", general_save),
-        web.post("/accounts", account_action), web.post("/tg", tg_action), web.post("/tg/account", tg_account),
+        web.post("/accounts", account_action), web.post("/accounts/profi-login", profi_login), web.post("/tg", tg_action), web.post("/tg/account", tg_account),
     ])
     app.router.add_static("/static/", BASE / "static")
     return app

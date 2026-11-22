@@ -1,0 +1,116 @@
+#prfrtkn:webbo:d8306f0cb9b3586cde92113791c8f7dc637e221b:40e91e7164ba105f5941f4dfa18139771a439e06
+
+      query authStrategyStart($type: AuthStrategyType!, $initialState: AuthStrategyInitialState!) {
+  authStrategyStart(type: $type, initialState: $initialState) {
+    ...AuthStrategyUseResultFragment
+  }
+}
+      fragment AuthStrategyUseResultFragment on AuthStrategyUseResult {
+  strategy {
+    strategyDescriptor
+    stepDescriptor
+    name
+    type
+  }
+  result {
+    __typename
+    ... on AuthStrategyResultRetry {
+      answer {
+        __typename
+        errors {
+          __typename
+          code
+          message
+          param
+        }
+      }
+    }
+    ... on AuthStrategyResultError {
+      answer {
+        __typename
+        errors {
+          __typename
+          code
+          message
+          param
+        }
+        askForSupport {
+          title
+          message
+          chatMessage
+          supportPayload {
+            checkId
+          }
+        }
+      }
+    }
+    ... on AuthStrategyResultSuccess {
+      __typename
+      answer {
+        __typename
+        events {
+          __typename
+          ... on AuthStrategyIAnalyticEvent {
+            type
+          }
+        }
+      }
+      auth {
+        loginUrl
+        redirectUrl
+      }
+      step {
+        ...AuthStrategyStepVariant
+      }
+    }
+  }
+}
+fragment AuthStrategyStepVariant on IAuthStrategyStep {
+  __typename
+  stepId
+  title
+  ... on AuthStrategyStepFillPhone {
+    phoneSuggestion
+  }
+  ... on AuthStrategyStepValidateMobileId {
+    phoneNumber
+    resendDelay
+  }
+  ... on AuthStrategyStepValidatePincode {
+    phoneNumber
+    resendDelay
+  }
+  ... on AuthStrategyStepValidatePinMobileId {
+    phoneNumber
+  }
+  ... on AuthStrategyStepMobileIdNotification {
+    timeout
+  }
+  ... on AuthStrategyStepFillUserInfo {
+    requestedFields {
+      __typename
+      fieldId
+      type
+      required
+      suggestedValue
+    }
+  }
+  ... on AuthStrategyStepRequestSocNet {
+    socNetId
+    oAuthStateToken
+    popupUrl
+  }
+  ... on AuthStrategyStepLoginMtsId {
+    isSecondTry
+    popupUrl
+  }
+  ... on AuthStrategyStepLogoutMtsId {
+    socNetId
+    oAuthStateToken
+    popupUrl
+  }
+  ... on AuthStrategyStepRequestYandex {
+    appId
+    scopes
+  }
+}

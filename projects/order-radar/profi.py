@@ -28,9 +28,16 @@ HEADERS = {
     "x-warp-ui-app": "WEBBO", "x-warp-ui-type": "WEB", "x-warp-ui-ver": "1.0",
     "Origin": BASE, "Referer": BASE + "/backoffice/n.php",
 }
-# Запрос ленты ровно в том виде, в каком его шлёт сайт (первая строка — подпись запроса, без неё сервер не отвечает).
+# Запросы ровно в том виде, в каком их шлёт сайт (первая строка — подпись запроса, без неё сервер не отвечает).
 # Если Profi обновит сайт и подпись устареет, в админке появится ошибка — запрос нужно будет снять заново.
-FEED_QUERY = Path(__file__).with_name("profi_feed.graphql").read_text(encoding="utf-8")
+GQL_DIR = Path(__file__).with_name("profi_gql")
+
+
+def _query(name: str) -> str:
+    return (GQL_DIR / f"{name}.graphql").read_text(encoding="utf-8")
+
+
+FEED_QUERY = _query("feed")
 FEED_VARS = {"allVerticals": True, "searchQuery": "", "searchEntities": [], "pageSize": 30,
              "useSavedFilter": True, "sort": "DEFAULT", "filter": {}}  # useSavedFilter — услуги из анкеты на Profi
 
@@ -99,6 +106,162 @@ async def renew(session: aiohttp.ClientSession, pairs: dict[str, str]) -> dict[s
     fresh = await _auth_step(session, "touch", fresh)
     db.set_account_secret(EXCHANGE, build_cookie(fresh))
     return fresh
+
+
+# ---------- вход по СМС (кнопка «Заменить cookie» в админке) ----------
+# Повторяем шаги сайта: гостевой токен → проверка капчи → authStrategyStart (Profi шлёт СМС) →
+# authStrategyUse с кодом → /auth/token/renew/?login и /touch → полноценная cookie специалиста.
+
+LOGIN_TTL = 600          # код из СМС ждём не дольше 10 минут
+_login: dict = {}        # незавершённый вход: cookie гостя, дескрипторы шага, телефон
+
+
+def normalize_phone(raw: str) -> str:
+    """Любая запись российского мобильного → «+7 999 123 45 67» (так номер шлёт сам сайт)."""
+    digits = re.sub(r"\D", "", raw)
+    if len(digits) == 11 and digits[0] in "78":
+        digits = digits[1:]
+    if len(digits) != 10 or digits[0] != "9":
+        raise ProfiError("нужен российский мобильный номер, например +7 999 123-45-67")
+    return f"+7 {digits[:3]} {digits[3:6]} {digits[6:8]} {digits[8:]}"
+
+
+def mask_phone(phone: str) -> str:
+    last = re.sub(r"\D", "", phone)[-2:]
+    return f"+7 *** *** ** {last}"
+
+
+def _merge_cookies(resp: aiohttp.ClientResponse, pairs: dict[str, str]) -> None:
+    for header in resp.headers.getall("Set-Cookie", []):
+        name, _, rest = header.partition("=")
+        name, value = name.strip(), rest.split(";", 1)[0]
+        if not name:
+            continue
+        if value in ("", "deleted"):
+            pairs.pop(name, None)
+        else:
+            pairs[name] = value
+
+
+async def _get(session: aiohttp.ClientSession, path: str, pairs: dict[str, str]) -> int:
+    async with session.get(BASE + path, headers={**HEADERS, "Cookie": build_cookie(pairs)}, timeout=TIMEOUT,
+                           allow_redirects=False) as resp:
+        _merge_cookies(resp, pairs)
+        return resp.status
+
+
+async def _gql(session: aiohttp.ClientSession, pairs: dict[str, str], query: str, variables: dict) -> dict:
+    async with session.post(f"{BASE}/graphql", json={"query": query, "variables": variables}, timeout=TIMEOUT,
+                            headers={**HEADERS, "Content-Type": "application/json", "Cookie": build_cookie(pairs)}) as resp:
+        _merge_cookies(resp, pairs)
+        status, text = resp.status, await resp.text()
+    if status != 200:
+        raise ProfiError(f"вход: profi.ru ответил {status}")
+    data = json.loads(text)
+    if data.get("errors"):
+        raise ProfiError(f"вход: {str(data['errors'][0].get('message', ''))[:150]}")
+    return data.get("data") or {}
+
+
+def _result_error(result: dict) -> str | None:
+    """Текст ошибки шага входа (неверный код, слишком много попыток…) или None, если шаг прошёл."""
+    if result.get("__typename") in ("AuthStrategyResultRetry", "AuthStrategyResultError"):
+        errors = (result.get("answer") or {}).get("errors") or []
+        return "; ".join(e.get("message") or e.get("code") or "" for e in errors).strip("; ") or "Profi отклонил вход"
+    return None
+
+
+def login_pending() -> str:
+    """Замаскированный номер, если ждём код из СМС; '' — входа в процессе нет."""
+    if _login and _login["until"] > time.monotonic():
+        return mask_phone(_login["phone"])
+    _login.clear()
+    return ""
+
+
+def login_cancel() -> None:
+    _login.clear()
+
+
+async def login_start(raw_phone: str) -> str:
+    """Шаг 1: Profi отправляет СМС с кодом. Возвращает замаскированный номер. ProfiError — с понятным текстом."""
+    phone = normalize_phone(raw_phone)
+    pairs: dict[str, str] = {}
+    try:
+        async with aiohttp.ClientSession(cookie_jar=aiohttp.DummyCookieJar()) as session:
+            await _get(session, "/backoffice/", pairs)                                  # cookie посетителя
+            await _get(session, f"/auth/token/init?dt={int(time.time() * 1000)}", pairs)  # гостевой токен
+            captcha = await _gql(session, pairs, _query("auth_captcha"), {"limitGroupId": "PIN", "phoneNumber": phone})
+            if (captcha.get("authCaptchaLimit") or {}).get("shouldShown"):
+                raise ProfiError("Profi просит пройти капчу — войдите на profi.ru в браузере и вставьте cookie вручную, "
+                                 "либо попробуйте снова через час")
+            data = await _gql(session, pairs, _query("auth_start"), {
+                "type": "phone",
+                "initialState": {"phoneNumber": phone, "implementer": {"siteId": "1815"},
+                                 "defaultOrderCityId": "prfr", "currentHost": BASE}})
+    except (aiohttp.ClientError, TimeoutError) as e:
+        raise ProfiError(f"нет связи с profi.ru: {e}") from e
+    except json.JSONDecodeError as e:
+        raise ProfiError("profi.ru вернул непонятный ответ") from e
+    start = data.get("authStrategyStart") or {}
+    result = start.get("result") or {}
+    if err := _result_error(result):
+        raise ProfiError(err)
+    step = result.get("step") or {}
+    if step.get("__typename") != "AuthStrategyStepValidatePincode":
+        raise ProfiError("Profi предложил другой способ входа — войдите в браузере и вставьте cookie вручную")
+    strategy = start.get("strategy") or {}
+    _login.clear()
+    _login.update(pairs=pairs, strategy=strategy.get("strategyDescriptor"), step=strategy.get("stepDescriptor"),
+                  phone=phone, until=time.monotonic() + LOGIN_TTL)
+    return mask_phone(phone)
+
+
+async def login_finish(raw_code: str) -> str:
+    """Шаг 2: код из СМС → вход → новая cookie сохраняется в базу и сбор включается. Возвращает номер (маской)."""
+    global _last_fetch
+    if not login_pending():
+        raise ProfiError("код устарел или вход не начат — запросите код ещё раз")
+    code = re.sub(r"\D", "", raw_code)
+    if not 4 <= len(code) <= 8:
+        raise ProfiError("введите код из СМС — только цифры")
+    pairs = _login["pairs"]
+    try:
+        async with aiohttp.ClientSession(cookie_jar=aiohttp.DummyCookieJar()) as session:
+            data = await _gql(session, pairs, _query("auth_use"), {
+                "method": "submitStep", "strategyDescriptor": _login["strategy"],
+                "payload": {"AuthStrategyStepValidatePin": {"pincode": code}, "stepDescriptor": _login["step"]}})
+            use = data.get("authStrategyUse") or {}
+            result = use.get("result") or {}
+            if err := _result_error(result):
+                _login["step"] = (use.get("strategy") or {}).get("stepDescriptor") or _login["step"]  # для повтора кода
+                raise ProfiError(err)
+            login_url = (result.get("auth") or {}).get("loginUrl")
+            if not login_url or not login_url.startswith("/"):
+                raise ProfiError("Profi не завершил вход — запросите код ещё раз")
+            for path in (login_url, f"/auth/token/touch?dt={int(time.time() * 1000)}"):
+                if await _get(session, path, pairs) != 200:
+                    raise ProfiError("Profi не выдал вход после кода — запросите код ещё раз")
+    except (aiohttp.ClientError, TimeoutError) as e:
+        raise ProfiError(f"нет связи с profi.ru: {e}") from e
+    except json.JSONDecodeError as e:
+        raise ProfiError("profi.ru вернул непонятный ответ") from e
+    if not _is_implementer(pairs):
+        raise ProfiError("вход выполнен, но это не аккаунт специалиста")
+    phone = mask_phone(_login["phone"])
+    db.connect_account(EXCHANGE, phone, build_cookie(pairs))
+    db.set_setting("profi_error", "")
+    _login.clear()
+    _last_fetch = 0.0  # новая cookie — сразу проверим ленту
+    return phone
+
+
+def _is_implementer(pairs: dict[str, str]) -> bool:
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(pairs.get("prfr_bo_tkn", "").split(".")[1] + "=="))
+        return bool((payload.get("roles") or {}).get("implementer"))
+    except (IndexError, ValueError, TypeError, AttributeError):
+        return False
 
 
 # ---------- лента ----------

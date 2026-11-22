@@ -21,7 +21,7 @@
     </div>
     <p class="muted small">{{ exchanges[a.exchange] }}.
       {% if a.exchange == "Profi.ru" %}Радар читает ленту заказов вашей анкеты (по выбранным там услугам) раз в минуту и сам продлевает вход.
-      Если на profi.ru нажать «Выйти», cookie перестанет работать — тогда отключите аккаунт и вставьте новую.{% endif %}</p>
+      Если вход слетит (например, нажали «Выйти» на profi.ru) — нажмите «Заменить cookie» и введите код из СМС.{% endif %}</p>
 
     {% if a.connected_at %}
       <div class="row"><span class="muted small">Подключён {{ a.connected_at }}{% if a.login %} · {{ a.login }}{% endif %}</span><span class="spacer"></span>
@@ -30,9 +30,37 @@
           <button class="btn btn-sm btn-danger">Отключить аккаунт</button>
         </form>
       </div>
-    {% elif a.exchange == "Profi.ru" %}{# Kwork и FL.ru отдают заказы без входа #}
+    {% endif %}
+
+    {% if a.exchange == "Profi.ru" %}{# вход по СМС: радар сам получает и сохраняет cookie #}
+      {% if profi_msg %}<p class="{{ 'flash' if profi_msg.startswith('Ошибка') else 'muted' }}" role="status">{{ profi_msg }}</p>{% endif %}
+      {% if profi_pending %}
+        <form method="post" action="/accounts/profi-login" class="row">
+          <input type="hidden" name="action" value="code">
+          <label class="inline">Код из СМС на {{ profi_pending }}
+            <input name="code" inputmode="numeric" autocomplete="one-time-code" required autofocus style="max-width: 140px"></label>
+          <button class="btn btn-primary btn-sm">Войти</button>
+        </form>
+        <form method="post" action="/accounts/profi-login">
+          <input type="hidden" name="action" value="cancel"><button class="btn btn-ghost btn-sm">Отменить вход</button>
+        </form>
+      {% else %}
+        <details {{ '' if a.connected_at else 'open' }}>
+          <summary class="btn btn-sm {{ '' if a.connected_at else 'btn-primary' }}">{{ "Заменить cookie" if a.connected_at else "Войти по СМС" }}</summary>
+          <form method="post" action="/accounts/profi-login" class="row" style="margin-top: 12px">
+            <input type="hidden" name="action" value="send_code">
+            <label class="inline">Телефон аккаунта Profi.ru
+              <input name="phone" type="tel" placeholder="+7 999 123-45-67" required autocomplete="off" style="max-width: 200px"></label>
+            <button class="btn btn-primary btn-sm">Получить код</button>
+          </form>
+          <p class="muted small">Profi пришлёт СМС, вы введёте код — радар сам войдёт и сохранит новую cookie. Копировать ничего не нужно.</p>
+        </details>
+      {% endif %}
+    {% endif %}
+
+    {% if a.exchange == "Profi.ru" and not a.connected_at %}
       <details>
-        <summary class="btn btn-sm">Подключить аккаунт</summary>
+        <summary class="btn btn-sm btn-ghost">Вставить cookie вручную</summary>
         <form method="post" action="/accounts" class="stack" style="margin-top: 12px">
           <input type="hidden" name="exchange" value="{{ a.exchange }}"><input type="hidden" name="action" value="connect">
           <label>Логин или телефон<input name="login" maxlength="100" autocomplete="off"></label>

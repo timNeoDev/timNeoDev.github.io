@@ -1,0 +1,11 @@
+#prfrtkn:webbo:3d9493754794cc7981fbbe1baf78cd679833c898:3fe80f864c8a887176fe7bb485c43cb8432120c2
+
+      query authCaptchaLimit($limitGroupId: RateLimitGroupIdEnum!, $phoneNumber: String) {
+  authCaptchaLimit(limitGroupId: $limitGroupId, phone: $phoneNumber) {
+    shouldShown
+    siteKey
+    hiddenSiteKey
+    captchaType
+  }
+}
+      
