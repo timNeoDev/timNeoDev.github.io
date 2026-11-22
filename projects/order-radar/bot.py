@@ -74,7 +74,7 @@ def order_kb(o):
     kb = InlineKeyboardBuilder()
     kb.button(text="🔗 Перейти к заказу", url=o["link"])
     if o["status"] == "new":
-        kb.button(text="✅ Откликнуться", callback_data=f"resp:{o['id']}")
+        kb.button(text="✔ Я откликнулся", callback_data=f"resp:{o['id']}")
     else:
         kb.button(text=f"{db.ORDER_STATUSES[o['status']]} · вернуть", callback_data=f"st:{o['id']}:new")
     kb.button(text="✍️ Отклик от ИИ", callback_data=f"ai:{o['id']}")
@@ -139,7 +139,8 @@ async def cmd_start(message: Message):
     await message.answer(
         "📡 <b>Радар заказов</b>\n\n"
         "Каждые 15–30 секунд проверяю Kwork, FL.ru и Telegram-каналы и присылаю подходящие заказы.\n"
-        "«✅ Откликнуться» создаёт сделку в админке, «✍️ Отклик от ИИ» пишет текст отклика под заказ.\n\n"
+        "«🔗 Перейти к заказу» — откликаетесь на бирже, потом «✔ Я откликнулся» — отклик засчитан, сделка в админке.\n"
+        "«✍️ Отклик от ИИ» пишет текст отклика под заказ.\n\n"
         "<b>Фильтры</b>\n"
         "/keywords — ключевые и минус-слова\n"
         "/add бот, лендинг — добавить ключевые слова\n"
@@ -272,7 +273,7 @@ async def respond(call: CallbackQuery):
         await call.answer("Заказ не найден — база радара была очищена", show_alert=True)
         return
     await call.message.edit_reply_markup(reply_markup=order_kb(db.get_order(order_id)))
-    await call.answer("Сделка создана")
+    await call.answer("Отклик засчитан, сделка создана")
     await call.message.answer(f"🤝 Сделка в админке: {ADMIN_URL}/deals/{deal_id}", disable_web_page_preview=True)
 
 

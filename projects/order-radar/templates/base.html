@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Радар заказов{% endblock %} · Радар</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v={{ static_v }}">
 </head>
 <body>
 <div class="layout">
@@ -30,6 +30,6 @@
     {% block content %}{% endblock %}
   </main>
 </div>
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v={{ static_v }}"></script>
 </body>
 </html>

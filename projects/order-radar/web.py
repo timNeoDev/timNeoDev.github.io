@@ -22,6 +22,9 @@ MONTHS = ["янв", "фев", "мар", "апр", "май", "июн", "июл", 
 FINANCE_TABS = {"forecast": "Предварительный доход", "payments": "Оплаты", "awaiting": "Ждём оплаты",
                 "potential": "Потенциально", "workload": "Загрузка", "closed": "Закрыто"}
 
+# Версия стилей и скриптов в ссылке (?v=…): после обновления радара браузер не берёт старые файлы из кэша
+STATIC_VERSION = int(max(f.stat().st_mtime for f in (BASE / "static").iterdir()))
+
 env = Environment(loader=FileSystemLoader(BASE / "templates"), autoescape=select_autoescape(["html"]))
 
 
@@ -43,7 +46,8 @@ env.globals.update(STAGES=db.STAGES, STAGE_GROUPS=db.STAGE_GROUPS, RESPONSE_STAG
 
 
 def render(request: web.Request, name: str, **ctx) -> web.Response:
-    ctx.update(path=request.path, today=date.today().isoformat(), search_q=request.query.get("q", ""))
+    ctx.update(path=request.path, today=date.today().isoformat(), search_q=request.query.get("q", ""),
+               static_v=STATIC_VERSION)
     if name != "login.html":
         s = db.overview()
         ctx.setdefault("badges", {"/orders": s["new_waiting"], "/analytics": s["follow_ups"]})
@@ -158,14 +162,13 @@ async def order_status(request: web.Request):
 
 
 async def order_respond(request: web.Request):
-    """Откликнуться: создаёт сделку. ?go=order — сразу открыть заказ на бирже, чтобы написать отклик."""
+    """«Я откликнулся»: отклик уже отправлен на бирже — создаём сделку и засчитываем отклик.
+    Сам отклик пишется на бирже: радар не входит в аккаунты бирж и откликаться за вас не может."""
     order_id = int(request.match_info["id"])
     try:
         deal_id = db.deal_from_order(order_id)
     except ValueError:
         raise web.HTTPNotFound(text="Заказ не найден — возможно, база радара была очищена")
-    if request.query.get("go") == "order":
-        raise web.HTTPFound(db.get_order(order_id)["link"])  # ссылка из нашей базы: kwork.ru или t.me
     raise web.HTTPFound(f"/deals/{deal_id}")
 
 

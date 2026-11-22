@@ -51,8 +51,8 @@
       <span class="spacer"></span>
       {% if o.status == "new" %}
         <form method="post" action="/orders/status"><input type="hidden" name="id" value="{{ o.id }}"><input type="hidden" name="status" value="hidden"><button class="btn btn-sm">🙈 Скрыть</button></form>
-        <a class="btn btn-sm" href="{{ o.link }}" target="_blank" rel="noopener">🔗 Перейти к заказу</a>
-        <form method="post" action="/orders/{{ o.id }}/respond?go=order" target="_blank"><button class="btn btn-sm btn-primary">✅ Откликнуться</button></form>
+        <a class="btn btn-sm btn-primary" href="{{ o.link }}" target="_blank" rel="noopener">🔗 Откликнуться на бирже</a>
+        <form method="post" action="/orders/{{ o.id }}/respond" data-confirm="Отклик на бирже уже отправлен? Будет создана сделка и засчитан отклик."><button class="btn btn-sm">✔ Я откликнулся</button></form>
       {% elif o.status == "applied" %}
         <form method="post" action="/orders/{{ o.id }}/respond"><button class="btn btn-sm">🤝 Открыть сделку</button></form>
       {% else %}

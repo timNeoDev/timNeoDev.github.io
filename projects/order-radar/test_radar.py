@@ -343,7 +343,7 @@ async def check_web():
         page = await (await client.get("/orders")).text()
         assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page and "<script>alert(1)" not in page
         page = await (await client.get(f"/orders/{oid}")).text()
-        assert "Перейти к заказу" in page and "Откликнуться" in page and "Копировать" in page   # страница заказа
+        assert "Откликнуться на бирже" in page and "Копировать" in page                     # страница заказа
         assert "🤖 Разбор нейросетью" in page and "Здравствуйте!" in page                  # разбор ИИ на странице
         assert "🤖 87/100" in await (await client.get("/orders?view=all")).text()
         resp = await client.post("/orders/99999/ai", allow_redirects=False)
@@ -353,8 +353,8 @@ async def check_web():
         assert resp.status == 302 and db.get_setting("ai_enabled") == "1" and not ai.enabled()  # без ключа — выкл
         assert "Нейросеть munito.ai" in await (await client.get("/settings")).text()
         assert (await client.get("/orders/99999")).status == 404
-        resp = await client.post(f"/orders/{oid}/respond?go=order", allow_redirects=False)
-        assert resp.headers["Location"] == db.get_order(oid)["link"]               # откликнуться — сразу на биржу
+        resp = await client.post(f"/orders/{oid}/respond", allow_redirects=False)
+        assert resp.headers["Location"].startswith("/deals/")                       # «Я откликнулся» — сделка; на биржу не ведёт
         resp = await client.post("/orders/99999/respond", allow_redirects=False)
         assert resp.status == 404                                                  # несуществующий заказ — не 500
         resp = await client.post(f"/orders/{xss_id}/respond", allow_redirects=False)
