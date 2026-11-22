@@ -198,3 +198,14 @@ details > summary::-webkit-details-marker { display: none; }
 .chance-высокий { background: rgba(62, 207, 142, .16); color: #8ff0c3; }
 .chance-средний { background: rgba(243, 181, 71, .15); color: #f7cd7d; }
 .chance-низкий { background: var(--surface-2); color: var(--muted); }
+
+/* Нейросеть и полный текст заказа */
+.badge.ai { background: rgba(94, 182, 255, .15); color: #9fd2ff; font-weight: 500; }
+.ai-line { font-size: 14px; color: #9fd2ff; margin: 0; }
+.ai-box { border-color: rgba(94, 182, 255, .3); }
+.order-desc.open { display: block; -webkit-line-clamp: unset; white-space: pre-wrap; }
+.link-btn { background: none; border: 0; padding: 0; color: var(--accent-strong, #b9a6ff); font: inherit; font-size: 13px;
+  cursor: pointer; align-self: flex-start; }
+.link-btn:hover { text-decoration: underline; }
+label.check { display: flex; align-items: flex-start; gap: 8px; }
+label.check input { width: auto; margin-top: 3px; }

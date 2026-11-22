@@ -19,3 +19,12 @@ document.querySelectorAll('form[data-confirm]').forEach(form => {
     if (!confirm(form.dataset.confirm)) e.preventDefault();
   });
 });
+
+// «Показать полностью» — раскрыть описание заказа в списке
+document.querySelectorAll('[data-expand]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const desc = btn.previousElementSibling;
+    const open = desc.classList.toggle('open');
+    btn.textContent = open ? 'Свернуть ▴' : 'Показать полностью ▾';
+  });
+});

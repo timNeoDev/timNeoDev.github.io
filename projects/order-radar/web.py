@@ -6,9 +6,11 @@ from datetime import date, datetime
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
+import aiohttp
 from aiohttp import web
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+import ai
 import db
 import sources
 import tg_user
@@ -140,10 +142,10 @@ async def orders(request: web.Request):
     items = [(o, sources.is_hot(o, now), sources.chance(o, now)) for o in db.list_orders(view, q=q, min_budget=budget)]
     if hot_only:
         items = [i for i in items if i[1]]
-    if sort == "chance":
-        items.sort(key=lambda i: -i[2])  # список из базы уже по новизне — сортировка устойчива
+    if sort == "chance":  # горячие наверху, дальше по шансу (с учётом оценки ИИ); внутри — по новизне
+        items.sort(key=lambda i: (not i[1], -i[2]))
     return render(request, "orders.html", items=items, view=view, q=q, budget=budget, hot_only=hot_only, sort=sort,
-                  chance_label=sources.chance_label)
+                  chance_label=sources.chance_label, avg_delay=db.avg_delay(), ai_on=ai.enabled())
 
 
 async def order_status(request: web.Request):
@@ -172,10 +174,30 @@ async def order_page(request: web.Request):
     o = db.get_order(int(request.match_info["id"]))
     if not o:
         raise web.HTTPNotFound(text="Заказ не найден — возможно, база радара была очищена")
+    if o["source"] == "FL.ru" and (o["description"] or "").endswith("..."):  # в RSS текст обрезан — догружаем
+        async with aiohttp.ClientSession() as session:
+            if full := await sources.fetch_fl_full(session, o["link"]):
+                db.set_description(o["id"], full)
+                o = db.get_order(o["id"])
     now = sources.msk_now()
     score = sources.chance(o, now)
     return render(request, "order.html", o=o, hot=sources.is_hot(o, now), score=score,
-                  chance_label=sources.chance_label(score), templates=db.list_templates())
+                  chance_label=sources.chance_label(score), templates=db.list_templates(),
+                  ai_key=bool(ai.settings()["key"]), ai_msg=request.query.get("ai_msg", ""))
+
+
+async def order_ai(request: web.Request):
+    """Разобрать заказ нейросетью (или переписать отклик заново)."""
+    o = db.get_order(int(request.match_info["id"]))
+    if not o:
+        raise web.HTTPNotFound(text="Заказ не найден — возможно, база радара была очищена")
+    msg = ""
+    try:
+        async with aiohttp.ClientSession() as session:
+            await ai.analyze(session, o)
+    except ai.AIError as e:
+        msg = f"Ошибка: {e}"
+    raise web.HTTPFound(f"/orders/{o['id']}" + (f"?ai_msg={quote(msg)}" if msg else "") + "#ai")
 
 
 # ---------- Сделки ----------
@@ -297,6 +319,8 @@ async def settings(request: web.Request):
                   tg_error=request.query.get("tg_error", ""),
                   follow_up_days=db.int_setting("follow_up_days"), min_budget=db.min_budget(),
                   poll_seconds=db.int_setting("poll_seconds"),
+                  ai=ai.settings(), ai_models=ai.MODELS, ai_msg=request.query.get("ai_msg", ""),
+                  ai_error=db.get_setting("ai_error"),
                   last_poll=db.get_setting("last_poll"), last_error=db.get_setting("last_error"))
 
 
@@ -326,6 +350,28 @@ async def general_save(request: web.Request):
             db.set_setting(key, max(to_int(form[key]), 0))
     db.rematch_new_orders()  # мог измениться минимальный бюджет
     raise web.HTTPFound("/settings")
+
+
+async def ai_save(request: web.Request):
+    """Нейросеть munito.ai: ключ, модель, текст «о себе», вкл/выкл. Ключ проверяется коротким запросом."""
+    form = await request.post()
+    if key := str(form.get("key", "")).strip():  # пустое поле — оставить сохранённый ключ
+        db.set_setting("ai_key", key)
+    model = str(form.get("model", ""))
+    if model in ai.MODELS:
+        db.set_setting("ai_model", model)
+    db.set_setting("ai_about", str(form.get("about", "")).strip()[:2000])
+    db.set_setting("ai_enabled", "1" if form.get("enabled") else "0")
+    s, msg = ai.settings(), "Сохранено"
+    if s["key"]:
+        try:
+            async with aiohttp.ClientSession() as session:
+                await ai.check_key(session, s["key"], s["model"])
+            msg = "Сохранено · ключ работает ✓"
+            db.set_setting("ai_error", "")
+        except ai.AIError as e:
+            msg = f"Ошибка: {e}"
+    raise web.HTTPFound(f"/settings?ai_msg={quote(msg)}#ai")
 
 
 async def account_action(request: web.Request):
@@ -407,6 +453,7 @@ def create_app() -> web.Application:
         web.get("/", home), web.get("/analytics", analytics), web.get("/clients", clients), web.get("/search", search),
         web.get("/orders", orders), web.post("/orders/status", order_status),
         web.post("/orders/{id:\\d+}/respond", order_respond), web.get("/orders/{id:\\d+}", order_page),
+        web.post("/orders/{id:\\d+}/ai", order_ai), web.post("/settings/ai", ai_save),
         web.get("/deals", deals),
         web.get("/deals/new", deal_page), web.post("/deals/new", deal_page),
         web.get("/deals/{id:\\d+}", deal_page), web.post("/deals/{id:\\d+}", deal_page),

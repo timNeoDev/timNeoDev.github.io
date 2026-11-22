@@ -24,6 +24,8 @@ FILTER_KINDS = ("plus", "minus")
 EXCHANGES = {"Kwork": "сбор открытых заказов, вход не нужен",
              "FL.ru": "RSS-ленты разделов «Программирование» и «Сайты», вход не нужен",
              "Profi.ru": "заказы видны только после входа в аккаунт"}
+AI_COLUMNS = (("ai_score", "INTEGER"), ("ai_hot", "INTEGER DEFAULT 0"), ("ai_summary", "TEXT"), ("ai_price", "TEXT"),
+              ("ai_days", "TEXT"), ("ai_risks", "TEXT"), ("ai_reply", "TEXT"))
 SETTINGS_DEFAULTS = {"min_budget": "0", "tax_rate": "4", "income_goal": "50000", "follow_up_days": "3",
                      "poll_seconds": "30"}
 
@@ -103,6 +105,11 @@ def init_db() -> None:
                          ("follow_up", "TEXT"), ("via_response", "INTEGER DEFAULT 0")):
             if col not in cols:
                 conn.execute(f"ALTER TABLE projects ADD COLUMN {col} {ddl}")
+        # Разбор заказа нейросетью и скорость доставки уведомления
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(orders)")}
+        for col, ddl in AI_COLUMNS + (("delay_sec", "INTEGER"),):
+            if col not in cols:
+                conn.execute(f"ALTER TABLE orders ADD COLUMN {col} {ddl}")
         conn.execute("UPDATE projects SET stage = 'dialog' WHERE stage = 'lead'")
         conn.execute("UPDATE projects SET stage = 'lost' WHERE stage = 'cancelled'")
 
@@ -255,6 +262,37 @@ def upsert_order(o: dict, matched: list[str]) -> int | None:
         conn.execute("UPDATE orders SET views = ?, offers = ?, budget = ?, budget_max = ? WHERE link = ?",
                      (o["views"], o["offers"], o["budget"], o["budget_max"], o["link"]))
         return None
+
+
+def link_exists(link: str) -> bool:
+    with closing(_conn()) as conn:
+        return conn.execute("SELECT 1 FROM orders WHERE link = ?", (link,)).fetchone() is not None
+
+
+def set_description(order_id: int, text: str) -> None:
+    with closing(_conn()) as conn, conn:
+        conn.execute("UPDATE orders SET description = ? WHERE id = ?", (text, order_id))
+
+
+def save_ai(order_id: int, result: dict) -> None:
+    """Результат ai.parse_answer: только известные колонки ai_*."""
+    fields = {k: result[k] for k, _ in AI_COLUMNS if k in result}
+    with closing(_conn()) as conn, conn:
+        conn.execute(f"UPDATE orders SET {', '.join(f'{k} = ?' for k in fields)} WHERE id = ?",
+                     (*fields.values(), order_id))
+
+
+def set_delay(order_id: int, seconds: int) -> None:
+    """Сколько секунд прошло от публикации заказа до уведомления в Telegram."""
+    with closing(_conn()) as conn, conn:
+        conn.execute("UPDATE orders SET delay_sec = ? WHERE id = ?", (max(0, seconds), order_id))
+
+
+def avg_delay(days: int = 7) -> int | None:
+    with closing(_conn()) as conn:
+        row = conn.execute("SELECT AVG(delay_sec) FROM orders WHERE delay_sec IS NOT NULL AND delay_sec < 3600 "
+                           "AND created_at >= datetime('now', 'localtime', ?)", (f"-{days} days",)).fetchone()
+        return round(row[0]) if row[0] is not None else None
 
 
 def get_order(order_id: int):

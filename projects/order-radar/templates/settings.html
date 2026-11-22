@@ -152,6 +152,22 @@
   </section>
 </div>
 
+<h2 class="section-title" id="ai">Нейросеть munito.ai</h2>
+<form class="card form-grid" method="post" action="/settings/ai" style="margin-bottom: 28px">
+  {% if ai_msg %}<p class="wide {{ 'flash' if ai_msg.startswith('Ошибка') else 'muted' }}" role="status">{{ ai_msg }}</p>
+  {% elif ai_error and ai.enabled %}<p class="wide flash" role="alert">Последняя ошибка: {{ ai_error }}</p>{% endif %}
+  <label>Ключ API{% if ai.key %} <span class="badge kw">сохранён</span>{% endif %}
+    <input name="key" type="password" autocomplete="off" placeholder="{{ 'оставьте пустым, чтобы не менять' if ai.key else 'вставьте ключ из консоли munito.ai' }}">
+    <span class="muted small">Ключ хранится только в базе радара. Создаётся в консоли munito.ai с правом «Inference».</span></label>
+  <label>Модель
+    <select name="model">{% for id, title in ai_models.items() %}<option value="{{ id }}" {{ 'selected' if ai.model == id }}>{{ title }}</option>{% endfor %}</select></label>
+  <label class="wide">О себе — нейросеть пишет отклики от вашего имени по этому тексту
+    <textarea name="about" rows="3" maxlength="2000">{{ ai.about }}</textarea></label>
+  <label class="check wide"><input type="checkbox" name="enabled" value="1" {{ 'checked' if ai.enabled }}>
+    Разбирать каждый новый заказ: оценка 0–100, цена, срок, риски и готовый отклик. Заказы, которые ИИ советует брать, становятся 🔥 горячими и поднимаются наверх.</label>
+  <div class="wide row"><button class="btn btn-primary">Сохранить и проверить ключ</button></div>
+</form>
+
 <h2 class="section-title">Фильтры заказов</h2>
 <div class="grid grid-2" style="align-items: start; margin-bottom: 28px">
   {% for kind, title, hint, words in [

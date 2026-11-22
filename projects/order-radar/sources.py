@@ -85,7 +85,15 @@ def chance(o, now: datetime) -> int:
         score -= 10
     if age_h > 72:
         score = min(score, 30)  # заказу больше трёх дней — шанс низкий, как бы мало откликов ни было
-    return max(0, min(score, 100))
+    score = max(0, min(score, 100))
+    if (ai := field(o, "ai_score")) is not None:  # нейросеть оценила, подходит ли заказ, — учитываем наравне
+        score = (score + ai) // 2
+    return score
+
+
+def field(o, key: str):
+    """Значение поля заказа или None (у словаря из парсера нет колонок, которые появляются в базе позже)."""
+    return o[key] if key in o.keys() else None
 
 
 def chance_label(score: int) -> str:
@@ -101,6 +109,8 @@ def is_hot(order, now: datetime) -> bool:
     if not order["published_at"]:
         return False
     age_min = (now - datetime.fromisoformat(order["published_at"])).total_seconds() / 60
+    if field(order, "ai_hot") and age_min <= 24 * 60:  # нейросеть сказала «брать сейчас» — горячий сутки
+        return True
     return age_min <= HOT_MAX_AGE_MIN and (order["offers"] or 0) <= HOT_MAX_OFFERS
 
 
@@ -174,8 +184,32 @@ def parse_fl_rss(xml_text: str) -> list[dict]:
         budget = extract_budget(f"{title} {description}")
         orders.append({"source": "FL.ru", "link": link, "title": title, "description": description,
                        "category": (item.findtext("category") or "").strip(), "budget": budget, "budget_max": budget,
-                       "views": 0, "offers": 0, "published_at": published_at})
+                       "views": 0, "offers": 0, "published_at": published_at,
+                       "cut": description.endswith("...")})  # в RSS описание обрезано — полное на странице заказа
     return orders
+
+
+FL_TEXT_RE = re.compile(r'<div id="projectp\d+"[^>]*>(.*?)</div>', re.S)
+
+
+def parse_fl_page(html: str) -> str:
+    """Полное описание со страницы заказа FL.ru. '' — не нашли (сменилась вёрстка)."""
+    m = FL_TEXT_RE.search(html)
+    if not m:
+        return ""
+    text = re.sub(r"<br\s*/?>", "\n", m.group(1))
+    text = unescape(re.sub(r"<[^>]+>", "", text))
+    return "\n".join(line.strip() for line in text.strip().splitlines())
+
+
+async def fetch_fl_full(session: aiohttp.ClientSession, link: str) -> str:
+    try:
+        async with session.get(link, headers=HEADERS, timeout=aiohttp.ClientTimeout(total=20)) as resp:
+            resp.raise_for_status()
+            return parse_fl_page(await resp.text())
+    except (aiohttp.ClientError, TimeoutError) as e:
+        logging.warning("FL.ru, полный текст %s: %s", link, e)
+        return ""
 
 
 async def fetch_fl(session: aiohttp.ClientSession, pages: int = 1) -> list[dict]:

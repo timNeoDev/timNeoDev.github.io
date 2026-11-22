@@ -12,6 +12,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiohttp import web
 
+import ai
 import bot as tg
 import db
 import sources
@@ -22,6 +23,8 @@ from web import create_app
 
 
 _paused_until: dict[str, float] = {}  # источник → до какого момента (time.monotonic) его не трогаем
+_ai_tasks: set[asyncio.Task] = set()        # фоновые разборы заказов нейросетью (ссылки, чтобы задачи не собрал GC)
+_ai_limit = asyncio.Semaphore(3)           # не больше 3 запросов к munito.ai одновременно
 
 
 def _paused(name: str) -> bool:
@@ -76,17 +79,43 @@ async def poll_once(session: aiohttp.ClientSession, bot: Bot | None, tg_client=N
         notify_new = db.has_orders_from(source)
         for o in reversed(orders):  # от старых к новым — уведомления придут по порядку
             matched = sources.apply_filters(o, plus, minus, min_budget, is_chat, ORDER_INTENT_WORDS)
+            if o.get("cut") and notify_new and not db.link_exists(o["link"]):
+                o["description"] = await sources.fetch_fl_full(session, o["link"]) or o["description"]
+                matched = sources.apply_filters(o, plus, minus, min_budget, is_chat, ORDER_INTENT_WORDS)
             order_id = db.upsert_order(o, matched)
             if order_id and matched:
                 found += 1
                 if bot and notify_new:
-                    try:
-                        await tg.notify(bot, order_id)
-                    except Exception:
-                        logging.exception("Не удалось отправить заказ #%s в Telegram", order_id)
+                    await deliver(session, bot, order_id)
     db.set_setting("last_poll", datetime.now().strftime("%d.%m %H:%M:%S"))
     db.set_setting("last_error", "; ".join(errors))
     return found
+
+
+async def deliver(session: aiohttp.ClientSession, bot: Bot, order_id: int) -> None:
+    """Уведомление сразу (скорость важнее), разбор нейросетью — следом, правкой того же сообщения."""
+    o = db.get_order(order_id)
+    if o["published_at"]:
+        db.set_delay(order_id, int((sources.msk_now() - datetime.fromisoformat(o["published_at"])).total_seconds()))
+    try:
+        message = await tg.notify(bot, order_id)
+    except Exception:
+        logging.exception("Не удалось отправить заказ #%s в Telegram", order_id)
+        return
+    if ai.enabled():
+        task = asyncio.create_task(analyze_and_update(session, bot, message, order_id))
+        _ai_tasks.add(task)
+        task.add_done_callback(_ai_tasks.discard)
+
+
+async def analyze_and_update(session: aiohttp.ClientSession, bot: Bot, message, order_id: int) -> None:
+    async with _ai_limit:
+        if not await ai.safe_analyze(session, db.get_order(order_id)):
+            return
+    try:
+        await tg.refresh(bot, message.chat.id, message.message_id, order_id)
+    except Exception:
+        logging.exception("Не удалось дописать разбор ИИ к заказу #%s", order_id)
 
 
 async def daily_messages(bot: Bot) -> None:

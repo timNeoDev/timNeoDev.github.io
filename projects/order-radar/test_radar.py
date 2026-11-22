@@ -167,7 +167,7 @@ assert "₽" in fl["title"]
 assert fl["description"] == "Нужен бот, бюджет 20 000 руб"
 import bot as _bot  # noqa: E402
 long = _bot.shorten("слово " * 500, 1500)
-assert len(long) < 1560 and long.endswith("«Перейти к заказу»)") and "слов…" not in long   # по границе слова
+assert len(long) < 1560 and long.endswith("на странице заказа)") and "слов…" not in long   # по границе слова
 assert _bot.shorten("коротко", 1500) == "коротко"
 
 # --- Telegram: вакансии, старые посты и слово глубоко в тексте не считаются заказами (примеры со скриншота) ---
@@ -241,6 +241,30 @@ kb_buttons = [b for row in bot.order_kb(db.get_order(oid)).inline_keyboard for b
 assert kb_buttons[0].text == "🔗 Перейти к заказу" and kb_buttons[0].url == db.get_order(oid)["link"]
 assert "Бот для записи" in bot.format_order(db.get_order(oid)) and "шанс:" in bot.format_order(db.get_order(oid))
 
+# --- нейросеть: разбор ответа, учёт оценки в шансе, вывод в боте ---
+import ai  # noqa: E402
+parsed = ai.parse_answer('<think>хм</think>```json\n{"score": "87", "hot": true, "summary": "Бот записи", '
+                         '"price": "10 тыс. ₽", "days": "3 дня", "risks": "", "reply": "Здравствуйте!"}\n```')
+assert parsed["ai_score"] == 87 and parsed["ai_hot"] == 1 and parsed["ai_reply"] == "Здравствуйте!"
+assert ai.parse_answer('{"score": 500, "hot": "нет"}')["ai_score"] == 100           # оценка в пределах 0–100
+try:
+    ai.parse_answer("не JSON")
+    raise AssertionError("ответ без JSON должен давать AIError")
+except ai.AIError:
+    pass
+db.save_ai(oid, {**parsed, "ai_hot": 1})
+db.set_delay(oid, 17)
+text = bot.format_order(db.get_order(oid))
+assert "🤖 <b>ИИ: 87/100</b>" in text and "дошёл за <b>17 сек</b>" in text and "<blockquote expandable>" in text
+assert "ГОРЯЧИЙ" in text or db.get_order(oid)["published_at"] < (sources.msk_now() - timedelta(days=1)).isoformat()
+assert any(b.callback_data == f"ai:{oid}" for row in bot.order_kb(db.get_order(oid)).inline_keyboard for b in row)
+assert bot.fmt_delay(75) == "1 мин 15 сек" and 0 <= db.avg_delay() <= 17   # в опросе выше тоже засечена доставка
+
+# --- FL.ru: полный текст со страницы заказа ---
+FL_PAGE = '<div id="projectp5530123" class="text-5">  Нужен бот.<br /> <br />Бюджет &laquo;30 тыс&raquo;  </div><div>x</div>'
+assert sources.parse_fl_page(FL_PAGE) == "Нужен бот.\n\nБюджет «30 тыс»" and sources.parse_fl_page("<p>") == ""
+assert sources.parse_fl_rss(FL.replace("20 000 руб", "20 000 руб..."))[0]["cut"] is True
+
 # --- шанс получить заказ ---
 fresh = {**o, "offers": 2, "budget": 8000, "published_at": "2026-11-20T12:00:00"}
 t0 = datetime.fromisoformat("2026-11-20T12:10:00")
@@ -248,6 +272,7 @@ assert sources.chance(fresh, t0) == 100 and sources.chance_label(100) == "выс
 crowded = {**fresh, "offers": 60, "budget": 500, "published_at": "2026-11-19T12:00:00"}
 assert sources.chance(crowded, t0) == 10 and sources.chance_label(10) == "низкий"       # 60 откликов, сутки, 500 ₽
 assert sources.chance({**fresh, "published_at": None}, t0) == 100 - 4 - 30 + 10          # без даты — как сутки
+assert sources.chance({**fresh, "ai_score": 40}, t0) == 70                                # ИИ: (100 + 40) / 2
 
 
 # --- Telegram-аккаунт: вход телефон → код → пароль (Telethon подменён) ---
@@ -319,6 +344,14 @@ async def check_web():
         assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page and "<script>alert(1)" not in page
         page = await (await client.get(f"/orders/{oid}")).text()
         assert "Перейти к заказу" in page and "Откликнуться" in page and "Копировать" in page   # страница заказа
+        assert "🤖 Разбор нейросетью" in page and "Здравствуйте!" in page                  # разбор ИИ на странице
+        assert "🤖 87/100" in await (await client.get("/orders?view=all")).text()
+        resp = await client.post("/orders/99999/ai", allow_redirects=False)
+        assert resp.status == 404
+        resp = await client.post("/settings/ai", data={"model": ai.DEFAULT_MODEL, "about": "Тим", "enabled": "1"},
+                                 allow_redirects=False)
+        assert resp.status == 302 and db.get_setting("ai_enabled") == "1" and not ai.enabled()  # без ключа — выкл
+        assert "Нейросеть munito.ai" in await (await client.get("/settings")).text()
         assert (await client.get("/orders/99999")).status == 404
         resp = await client.post(f"/orders/{oid}/respond?go=order", allow_redirects=False)
         assert resp.headers["Location"] == db.get_order(oid)["link"]               # откликнуться — сразу на биржу

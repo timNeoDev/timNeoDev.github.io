@@ -2,11 +2,14 @@
 from datetime import date
 from html import escape
 
+import aiohttp
 from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+import ai
 import db
 import sources
 from config import ADMIN_ID, WEB_PORT
@@ -23,22 +26,48 @@ def shorten(text: str, limit: int) -> str:
     """Обрезка по границе слова с подсказкой, где читать дальше (лимит сообщения Telegram — 4096 символов)."""
     if len(text) <= limit:
         return text
-    return text[:limit].rsplit(" ", 1)[0].rstrip(" ,.;:") + "… (полный текст — «Перейти к заказу»)"
+    return text[:limit].rsplit(" ", 1)[0].rstrip(" ,.;:") + "… (полностью — на странице заказа)"
+
+
+def fmt_delay(seconds: int | None) -> str:
+    if seconds is None:
+        return ""
+    if seconds < 60:
+        return f"{seconds} сек"
+    if seconds < 3600:
+        return f"{seconds // 60} мин {seconds % 60} сек"
+    return f"{seconds // 3600} ч {seconds % 3600 // 60} мин"
 
 
 def format_order(o) -> str:
     now = sources.msk_now()
-    hot = "🔥 " if sources.is_hot(o, now) else ""
-    budget = rub(o["budget"]) + (f" (до {rub(o['budget_max'])})" if o["budget_max"] > o["budget"] else "")
-    return (
-        f"{hot}<b>{escape(o['title'])}</b>\n"
-        f"💰 {budget} · 👁 {o['views']} · 💬 откликов: {o['offers']}\n"
-        f"🎯 шанс: {sources.chance_label(sources.chance(o, now))}\n"
-        f"<i>{escape(o['source'])} · {escape(o['category'] or 'без категории')}</i>\n\n"
-        f"{escape(shorten(o['description'] or '', 1500))}\n\n"
-        f"🔑 {escape(o['matched'])}\n"
-        f"<a href=\"{escape(o['link'])}\">Открыть заказ →</a>"
-    )
+    score = sources.chance(o, now)
+    budget = f"<b>{rub(o['budget'])}</b>" if o["budget"] else "<b>договорная</b>"
+    if o["budget_max"] > o["budget"]:
+        budget += f" · до {rub(o['budget_max'])}"
+    offers = "?" if o["source"].startswith(sources.UNKNOWN_OFFERS) else o["offers"]
+    lines = []
+    if sources.is_hot(o, now):
+        lines.append("🔥 <b>ГОРЯЧИЙ ЗАКАЗ</b>")
+    lines += [
+        f"<b>{escape(o['title'])}</b>",
+        "",
+        f"💰 {budget}",
+        f"📍 {escape(o['source'])}" + (f" · {escape(o['category'])}" if o["category"] else ""),
+        f"👁 {o['views']}   💬 откликов: {offers}   🎯 шанс: <b>{sources.chance_label(score)}</b> ({score})",
+    ]
+    if (delay := sources.field(o, "delay_sec")) is not None:
+        lines.append(f"⚡ дошёл за <b>{fmt_delay(delay)}</b> после публикации")
+    if o["description"]:
+        lines += ["", f"<blockquote expandable>{escape(shorten(o['description'], 2500))}</blockquote>"]
+    if sources.field(o, "ai_score") is not None:
+        lines += ["", f"🤖 <b>ИИ: {o['ai_score']}/100</b> — {escape(o['ai_summary'] or '')}"]
+        if o["ai_price"] or o["ai_days"]:
+            lines.append(f"💵 {escape(o['ai_price'] or '—')}   ⏳ {escape(o['ai_days'] or '—')}")
+        if o["ai_risks"]:
+            lines.append(f"⚠️ {escape(o['ai_risks'])}")
+    lines += ["", f"🔑 <i>{escape(o['matched'].replace(',', ', '))}</i>"]
+    return "\n".join(lines)
 
 
 def order_kb(o):
@@ -46,17 +75,26 @@ def order_kb(o):
     kb.button(text="🔗 Перейти к заказу", url=o["link"])
     if o["status"] == "new":
         kb.button(text="✅ Откликнуться", callback_data=f"resp:{o['id']}")
-        kb.button(text="🙈 Скрыть", callback_data=f"st:{o['id']}:hidden")
     else:
         kb.button(text=f"{db.ORDER_STATUSES[o['status']]} · вернуть", callback_data=f"st:{o['id']}:new")
+    kb.button(text="✍️ Отклик от ИИ", callback_data=f"ai:{o['id']}")
     kb.button(text="📝 Шаблоны", callback_data="tpl")
-    kb.adjust(2, 2)
+    if o["status"] == "new":
+        kb.button(text="🙈 Скрыть", callback_data=f"st:{o['id']}:hidden")
+    kb.adjust(2, 2, 1)
     return kb.as_markup()
 
 
-async def notify(bot: Bot, order_id: int) -> None:
+async def notify(bot: Bot, order_id: int) -> Message:
     o = db.get_order(order_id)
-    await bot.send_message(ADMIN_ID, format_order(o), reply_markup=order_kb(o), disable_web_page_preview=True)
+    return await bot.send_message(ADMIN_ID, format_order(o), reply_markup=order_kb(o), disable_web_page_preview=True)
+
+
+async def refresh(bot: Bot, chat_id: int, message_id: int, order_id: int) -> None:
+    """Перерисовать уведомление (например, когда нейросеть дописала разбор)."""
+    o = db.get_order(order_id)
+    await bot.edit_message_text(format_order(o), chat_id=chat_id, message_id=message_id,
+                                reply_markup=order_kb(o), disable_web_page_preview=True)
 
 
 # ---------- Ежедневные сообщения ----------
@@ -100,8 +138,8 @@ def digest_text() -> str:
 async def cmd_start(message: Message):
     await message.answer(
         "📡 <b>Радар заказов</b>\n\n"
-        "Каждые 3 минуты проверяю биржи и присылаю подходящие заказы.\n"
-        "«✅ Откликнулся» сразу создаёт сделку в админке.\n\n"
+        "Каждые 15–30 секунд проверяю Kwork, FL.ru и Telegram-каналы и присылаю подходящие заказы.\n"
+        "«✅ Откликнуться» создаёт сделку в админке, «✍️ Отклик от ИИ» пишет текст отклика под заказ.\n\n"
         "<b>Фильтры</b>\n"
         "/keywords — ключевые и минус-слова\n"
         "/add бот, лендинг — добавить ключевые слова\n"
@@ -236,6 +274,34 @@ async def respond(call: CallbackQuery):
     await call.message.edit_reply_markup(reply_markup=order_kb(db.get_order(order_id)))
     await call.answer("Сделка создана")
     await call.message.answer(f"🤝 Сделка в админке: {ADMIN_URL}/deals/{deal_id}", disable_web_page_preview=True)
+
+
+@router.callback_query(F.data.startswith("ai:"))
+async def ai_reply(call: CallbackQuery):
+    o = db.get_order(int(call.data.split(":")[1]))
+    if not o:
+        await call.answer("Заказ не найден — база радара была очищена", show_alert=True)
+        return
+    if not o["ai_reply"]:
+        if not ai.settings()["key"]:
+            await call.answer("Добавьте ключ munito.ai в админке: Настройки → Нейросеть", show_alert=True)
+            return
+        await call.answer("✍️ Пишу отклик, 5–15 секунд…")
+        try:
+            async with aiohttp.ClientSession() as session:
+                await ai.analyze(session, o)
+        except ai.AIError as e:
+            await call.message.answer(f"🤖 Не получилось: {escape(str(e))}")
+            return
+        o = db.get_order(o["id"])
+        try:  # дописать разбор и в само уведомление
+            await call.message.edit_text(format_order(o), reply_markup=order_kb(o), disable_web_page_preview=True)
+        except TelegramBadRequest:
+            pass  # сообщение не изменилось или слишком старое — не страшно
+    else:
+        await call.answer()
+    await call.message.answer(f"✍️ <b>Отклик на «{escape(o['title'][:80])}»</b>\n"
+                              f"<i>нажмите на текст, чтобы скопировать</i>\n\n<code>{escape(o['ai_reply'])}</code>")
 
 
 @router.callback_query(F.data == "tpl")
