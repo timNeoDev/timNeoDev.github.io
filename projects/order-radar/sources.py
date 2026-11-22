@@ -7,7 +7,8 @@ from html import unescape
 
 import aiohttp
 
-from config import HOT_MAX_AGE_MIN, HOT_MAX_OFFERS, KWORK_PAGES, KWORK_URL
+from config import (HIRING_WORDS, HOT_MAX_AGE_MIN, HOT_MAX_OFFERS, KWORK_PAGES, KWORK_URL, TG_KEYWORD_ZONE,
+                    TG_MAX_AGE_DAYS)
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
@@ -46,24 +47,41 @@ def filter_order(o: dict, plus: list[str], minus: list[str], min_budget: int) ->
     return match(text, plus)
 
 
+def is_vacancy(text: str) -> bool:
+    """Найм в штат, а не разовый заказ: два и больше признаков вакансии («в команду», «оклад», «обязанности»…)."""
+    return len(match(text, HIRING_WORDS)) >= 2
+
+
 def apply_filters(o: dict, plus: list[str], minus: list[str], min_budget: int, is_chat: bool,
                   intent_words: list[str]) -> list[str]:
-    """filter_order + для чатов: сообщение должно быть похоже на заказ, а не на болтовню."""
+    """filter_order + правила для Telegram, где кроме заказов много вакансий, рекламы и болтовни."""
     matched = filter_order(o, plus, minus, min_budget)
-    if is_chat and matched and not looks_like_order(o["description"], intent_words):
+    if not matched or not o["source"].startswith("TG "):
+        return matched
+    text = f"{o['title']}\n{o['description']}"
+    if is_vacancy(text):
         return []
-    return matched
+    if o["published_at"] and (msk_now() - datetime.fromisoformat(o["published_at"])).days >= TG_MAX_AGE_DAYS:
+        return []  # старый пост — заказ уже, скорее всего, взяли
+    head = match(text[:TG_KEYWORD_ZONE], matched)  # слово должно быть в начале: там суть, а не история компании
+    if not head or (is_chat and not looks_like_order(o["description"], intent_words)):
+        return []
+    return head
 
 
 def chance(o, now: datetime) -> int:
     """Шанс получить заказ, 0–100: меньше откликов и свежее — выше; нормальный бюджет — плюс.
     shortcut: веса подобраны на глаз; когда наберётся статистика выигранных сделок, подобрать по ней."""
     age_h = (now - datetime.fromisoformat(o["published_at"])).total_seconds() / 3600 if o["published_at"] else 24
-    score = 100 - min((o["offers"] or 0) * 2, 50) - min(int(max(age_h, 0) * 5), 30)
+    # в Telegram число откликов неизвестно — считаем, что конкуренция средняя, а не нулевая
+    offers_penalty = 20 if o["source"].startswith("TG ") else min((o["offers"] or 0) * 2, 50)
+    score = 100 - offers_penalty - min(int(max(age_h, 0) * 5), 30)
     if o["budget"] >= 5000:
         score += 10
     elif 0 < o["budget"] < 1000:
         score -= 10
+    if age_h > 72:
+        score = min(score, 30)  # заказу больше трёх дней — шанс низкий, как бы мало откликов ни было
     return max(0, min(score, 100))
 
 

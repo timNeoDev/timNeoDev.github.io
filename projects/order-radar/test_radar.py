@@ -138,7 +138,8 @@ async def check_poll():
         sent.append(db.get_order(order_id)["title"])
 
     def batch(title, n, chat=False, text=None):
-        return (f"TG @{title}", [{**p0, "link": f"https://t.me/{title}/{i}", "source": f"TG @{title}",
+        return (f"TG @{title}", [{**p0, "published_at": sources.msk_now().isoformat(),  # свежий пост
+                                  "link": f"https://t.me/{title}/{i}", "source": f"TG @{title}",
                                   "title": f"{title} {i}", "description": text or p0["description"]} for i in n], chat)
 
     real_collect, real_notify = main.collect, main.tg.notify
@@ -155,6 +156,33 @@ async def check_poll():
     assert db.get_order(db.list_orders("all", q="лол")[0]["id"])["matched"] == ""   # болтовня не заказ
 
 asyncio.run(check_poll())
+
+# --- Telegram: вакансии, старые посты и слово глубоко в тексте не считаются заказами (примеры со скриншота) ---
+now_iso = sources.msk_now().isoformat()
+def tg(title, desc, published=None):
+    return {**p0, "source": "TG @chan", "title": title, "description": desc, "budget": 0, "offers": 0,
+            "published_at": published or now_iso}
+KW = ["бот", "скрипт", "автоматиз", "сайт"]
+vacancies = [
+    tg("Менеджер по продажам в IT компанию (b2b)", "Менеджер по продажам в IT компанию. Предоставляем услуги заказной "
+       "разработки и автоматизацию бизнес-процессов. Ищем менеджера в нашу команду. Оклад + %. Обязанности: звонки."),
+    tg("Сейчас мы в поисках Продуктового маркетолога", "Сейчас мы в поисках Продуктового маркетолога. Требования: опыт. "
+       "Мы предлагаем: удалёнку, скрипт продаж и обучение."),
+]
+for v in vacancies:
+    assert sources.apply_filters(v, KW, [], 0, False, []) == [], v["title"]
+deep = tg("👔 Специалист по закупке рекламы", "Тип работы: разовая. " + "Задача: закупка рекламы. " * 20 + "Нужен опыт с ботами")
+assert sources.apply_filters(deep, KW, [], 0, False, []) == []              # «бот» только глубоко в тексте
+order = tg("Нужен Telegram-бот для записи клиентов", "Нужен бот на aiogram, бюджет 15 000 ₽, срок неделя")
+assert sources.apply_filters(order, KW, [], 0, False, []) == ["бот"]         # настоящий заказ проходит
+old = tg("Нужен бот", "Нужен бот, бюджет 5000 руб", published="2026-10-01T10:00:00")
+assert sources.apply_filters(old, KW, [], 0, False, []) == []              # пост старше 3 дней
+# шанс: 22-дневный пост из Telegram без бюджета — низкий, а не высокий
+assert sources.chance_label(sources.chance({**order, "budget": 0, "published_at": "2026-10-31T10:00:00"},
+                                           sources.msk_now())) == "низкий"
+# Kwork эти правила не задевают: заказ со словом «требования» в ТЗ проходит
+kw = {**o, "source": "Kwork", "title": "Доработать бота", "description": "Требования: aiogram. Обязанности бота: запись"}
+assert sources.apply_filters(kw, ["бот"], [], 0, False, []) == ["бот"]
 
 
 # --- быстрая проверка: первая страница Kwork; ошибка источника — пауза ---
