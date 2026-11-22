@@ -158,11 +158,12 @@ async def check_poll():
 asyncio.run(check_poll())
 
 # --- FL.ru RSS и обрезка текста в уведомлении ---
-FL = """<?xml version="1.0" encoding="utf-8"?><rss><channel><item><title><![CDATA[Telegram-бот для магазина]]></title>
+FL = """<?xml version="1.0" encoding="utf-8"?><rss><channel><item><title><![CDATA[Telegram-бот для магазина (Бюджет: 25 000 &#8381;)]]></title>
 <link>https://www.fl.ru/projects/1/bot.html</link><description><![CDATA[Нужен <b>бот</b>, бюджет 20 000 руб]]></description>
 <category>Программирование / Боты</category><pubDate>Sat, 22 Nov 2026 10:00:00 GMT</pubDate></item></channel></rss>"""
 fl = sources.parse_fl_rss(FL)[0]
-assert (fl["source"], fl["budget"], fl["published_at"]) == ("FL.ru", 20000, "2026-11-22T13:00:00")
+assert (fl["source"], fl["budget"], fl["published_at"]) == ("FL.ru", 25000, "2026-11-22T13:00:00")
+assert "₽" in fl["title"]
 assert fl["description"] == "Нужен бот, бюджет 20 000 руб"
 import bot as _bot  # noqa: E402
 long = _bot.shorten("слово " * 500, 1500)

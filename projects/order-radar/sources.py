@@ -161,7 +161,8 @@ async def fetch_kwork(session: aiohttp.ClientSession, pages: int = KWORK_PAGES) 
 def parse_fl_rss(xml_text: str) -> list[dict]:
     orders = []
     for item in ET.fromstring(xml_text).iter("item"):
-        link, title = (item.findtext("link") or "").strip(), (item.findtext("title") or "").strip()
+        link = (item.findtext("link") or "").strip()
+        title = unescape(item.findtext("title") or "").strip()  # FL кодирует ₽ как &#8381; внутри CDATA
         if not link or not title:
             continue
         description = unescape(re.sub(r"<[^>]+>", "", item.findtext("description") or "")).strip()
