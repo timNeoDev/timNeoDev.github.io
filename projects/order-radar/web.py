@@ -281,6 +281,7 @@ async def settings(request: web.Request):
                   tg_keys_saved=bool(api_id and api_hash), tg_msg=request.query.get("tg_msg", ""),
                   tg_error=request.query.get("tg_error", ""),
                   follow_up_days=db.int_setting("follow_up_days"), min_budget=db.min_budget(),
+                  poll_seconds=db.int_setting("poll_seconds"),
                   last_poll=db.get_setting("last_poll"), last_error=db.get_setting("last_error"))
 
 

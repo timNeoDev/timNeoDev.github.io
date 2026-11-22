@@ -22,7 +22,8 @@ STAGE_GROUPS = {"responses": ("Отклики", tuple(RESPONSE_STAGES)), "work":
 ACTIVE_STAGES = tuple(RESPONSE_STAGES) + tuple(WORK_STAGES)
 FILTER_KINDS = ("plus", "minus")
 EXCHANGES = {"Kwork": "сбор открытых заказов, вход не нужен", "Profi.ru": "заказы видны только после входа в аккаунт"}
-SETTINGS_DEFAULTS = {"min_budget": "0", "tax_rate": "4", "income_goal": "50000", "follow_up_days": "3"}
+SETTINGS_DEFAULTS = {"min_budget": "0", "tax_rate": "4", "income_goal": "50000", "follow_up_days": "3",
+                     "poll_seconds": "30"}
 
 DEFAULT_TEMPLATES = [
     ("Telegram-бот", "Здравствуйте! Сделаю бота под вашу задачу на Python (aiogram 3): удобное меню, база данных, "

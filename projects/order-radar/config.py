@@ -13,7 +13,10 @@ WEB_HOST = os.getenv("WEB_HOST", "127.0.0.1")
 WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
 
 # Как часто проверять биржи, секунд
-POLL_SECONDS = 180
+POLL_SECONDS = 30          # по умолчанию; меняется в админке (минимум 15)
+MIN_POLL_SECONDS = 15
+FULL_SCAN_SECONDS = 300    # раз в 5 минут — все страницы Kwork, чтобы обновить просмотры и отклики старых заказов
+BACKOFF_SECONDS = 120      # источник ответил ошибкой — пауза, чтобы не получить блокировку за частые запросы
 
 # Kwork: раздел «Разработка и IT» (c=11), сколько первых страниц смотреть (по 12 заказов)
 KWORK_URL = "https://kwork.ru/projects?c=11&page={page}"

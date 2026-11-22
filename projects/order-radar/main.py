@@ -3,6 +3,7 @@
 """
 import asyncio
 import logging
+import time
 from datetime import date, datetime
 
 import aiohttp
@@ -15,25 +16,41 @@ import bot as tg
 import db
 import sources
 import tg_user
-from config import (ADMIN_ID, ADMIN_PASSWORD, BOT_TOKEN, DIGEST_HOUR, ORDER_INTENT_WORDS, POLL_SECONDS,
-                    REMINDER_HOUR, WEB_HOST, WEB_PORT)
+from config import (ADMIN_ID, ADMIN_PASSWORD, BACKOFF_SECONDS, BOT_TOKEN, DIGEST_HOUR, FULL_SCAN_SECONDS, KWORK_PAGES,
+                    MIN_POLL_SECONDS, ORDER_INTENT_WORDS, REMINDER_HOUR, WEB_HOST, WEB_PORT)
 from web import create_app
 
 
-async def collect(session: aiohttp.ClientSession, tg_client) -> tuple[list[tuple[str, list[dict], bool]], list[str]]:
-    """Заказы со всех включённых источников: [(источник, заказы, это_чат)], ошибки бирж."""
+_paused_until: dict[str, float] = {}  # источник → до какого момента (time.monotonic) его не трогаем
+
+
+def _paused(name: str) -> bool:
+    return _paused_until.get(name, 0) > time.monotonic()
+
+
+def _pause(name: str) -> None:
+    _paused_until[name] = time.monotonic() + BACKOFF_SECONDS
+
+
+async def collect(session: aiohttp.ClientSession, tg_client, full: bool = True
+                  ) -> tuple[list[tuple[str, list[dict], bool]], list[str]]:
+    """Заказы со всех включённых источников: [(источник, заказы, это_чат)], ошибки бирж.
+    full=False — быстрая проверка: только первая страница Kwork."""
     batches, errors = [], []
     enabled = {a["exchange"] for a in db.list_accounts() if a["enabled"]}
     if "Profi.ru" in enabled:
         errors.append("Profi.ru: сбор ещё не настроен")
     for name, fetch in sources.SOURCES:
-        if name in enabled:
-            orders = await fetch(session)
+        if name in enabled and not _paused(name):
+            orders = await fetch(session, KWORK_PAGES if full else 1)
             if not orders:
-                errors.append(f"{name}: нет данных")
+                errors.append(f"{name}: нет данных, пауза {BACKOFF_SECONDS} с")
+                _pause(name)
             batches.append((name, orders, False))
     for src in db.list_tg_sources(enabled_only=True):  # ошибки каналов видны в настройках, не в общей плашке
         name, is_chat = src["username"], src["kind"] == "chat"
+        if _paused(f"tg:{name}"):
+            continue
         try:
             if tg_client:  # подключён аккаунт для парсинга — читаем через него (видит и закрытые каналы, и чаты)
                 orders = await tg_user.fetch(tg_client, name)
@@ -45,13 +62,14 @@ async def collect(session: aiohttp.ClientSession, tg_client) -> tuple[list[tuple
             batches.append((f"TG @{name}", orders, is_chat))
         except ValueError as e:
             db.set_tg_source(name, last_error=str(e)[:200])
+            _pause(f"tg:{name}")
     return batches, errors
 
 
-async def poll_once(session: aiohttp.ClientSession, bot: Bot | None, tg_client=None) -> int:
+async def poll_once(session: aiohttp.ClientSession, bot: Bot | None, tg_client=None, full: bool = True) -> int:
     """Один проход по всем источникам. Возвращает число новых подходящих заказов."""
     plus, minus, min_budget = db.get_words("plus"), db.get_words("minus"), db.min_budget()
-    batches, errors = await collect(session, tg_client)
+    batches, errors = await collect(session, tg_client, full=full)
     found = 0
     for source, orders, is_chat in batches:
         # Первый проход по источнику (новый канал или пустая база) — старые посты не рассылаем
@@ -66,7 +84,7 @@ async def poll_once(session: aiohttp.ClientSession, bot: Bot | None, tg_client=N
                         await tg.notify(bot, order_id)
                     except Exception:
                         logging.exception("Не удалось отправить заказ #%s в Telegram", order_id)
-    db.set_setting("last_poll", datetime.now().strftime("%d.%m %H:%M"))
+    db.set_setting("last_poll", datetime.now().strftime("%d.%m %H:%M:%S"))
     db.set_setting("last_error", "; ".join(errors))
     return found
 
@@ -85,17 +103,22 @@ async def daily_messages(bot: Bot) -> None:
 async def poll_forever(bot: Bot | None) -> None:
     await tg_user.start()
     logging.info("Telegram: %s", "аккаунт подключён" if tg_user.CLIENT else "аккаунт не подключён (каналы через t.me/s)")
+    last_full = 0.0
     async with aiohttp.ClientSession() as session:
         while True:
+            full = time.monotonic() - last_full >= FULL_SCAN_SECONDS
             try:
                 # аккаунт могут подключить или отключить в админке на ходу — берём текущий
-                found = await poll_once(session, bot, tg_user.CLIENT)
-                logging.info("Проверка бирж: новых подходящих заказов — %s", found)
+                found = await poll_once(session, bot, tg_user.CLIENT, full=full)
+                if full:
+                    last_full = time.monotonic()
+                if found or full:  # быстрые проверки без находок не засоряют лог
+                    logging.info("Проверка%s: новых подходящих заказов — %s", " (полная)" if full else "", found)
                 if bot:
                     await daily_messages(bot)
             except Exception:  # опрос не должен останавливаться из-за одной ошибки
                 logging.exception("Ошибка при проверке бирж")
-            await asyncio.sleep(POLL_SECONDS)
+            await asyncio.sleep(max(db.int_setting("poll_seconds"), MIN_POLL_SECONDS))
 
 
 async def main():

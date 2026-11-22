@@ -184,6 +184,8 @@
   <label>Налог самозанятого, %<input name="tax_rate" type="number" min="0" max="20" value="{{ s.tax_rate }}">
     <span class="muted small">4% — с физлиц, 6% — с компаний и ИП</span></label>
   <label>«Пора напомнить» через, дней<input name="follow_up_days" type="number" min="1" max="30" value="{{ follow_up_days }}"></label>
+  <label>Проверять биржи и каналы каждые, сек<input name="poll_seconds" type="number" min="15" max="600" value="{{ poll_seconds }}">
+    <span class="muted small">Минимум 15. Раз в 5 минут — полная проверка всех страниц. Источник, ответивший ошибкой, получает паузу 2 минуты.</span></label>
   <div class="wide row"><button class="btn btn-primary">Сохранить</button>
     <span class="muted small">Последняя проверка бирж: {{ last_poll or "ещё не было" }}{% if last_error %} · {{ last_error }}{% endif %}</span></div>
 </form>

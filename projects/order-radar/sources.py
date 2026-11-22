@@ -119,10 +119,11 @@ def parse_kwork(html: str) -> list[dict]:
     return orders
 
 
-async def fetch_kwork(session: aiohttp.ClientSession) -> list[dict]:
-    """Свежие заказы Kwork. При ошибке сети или смене вёрстки — то, что успели собрать (без падения опроса)."""
+async def fetch_kwork(session: aiohttp.ClientSession, pages: int = KWORK_PAGES) -> list[dict]:
+    """Свежие заказы Kwork. При ошибке сети или смене вёрстки — то, что успели собрать (без падения опроса).
+    Частая проверка берёт только 1-ю страницу (новые заказы появляются там), полная — все."""
     orders = []
-    for page in range(1, KWORK_PAGES + 1):
+    for page in range(1, pages + 1):
         try:
             async with session.get(KWORK_URL.format(page=page), headers=HEADERS,
                                    timeout=aiohttp.ClientTimeout(total=30)) as resp:

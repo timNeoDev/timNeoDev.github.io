@@ -141,18 +141,48 @@ async def check_poll():
         return (f"TG @{title}", [{**p0, "link": f"https://t.me/{title}/{i}", "source": f"TG @{title}",
                                   "title": f"{title} {i}", "description": text or p0["description"]} for i in n], chat)
 
+    real_collect, real_notify = main.collect, main.tg.notify
     main.tg.notify = fake_notify
     plan = [[batch("newchan", [1, 2])], [batch("newchan", [3])],
             [batch("chatx", [1])], [batch("chatx", [2], chat=True, text="Telegram-бот у меня сломался, лол")]]
     for step in plan:
-        async def fake_collect(session, tg_client, step=step):
+        async def fake_collect(session, tg_client, step=step, full=True):
             return step, []
         main.collect = fake_collect
         await main.poll_once(None, bot=object())
+    main.collect, main.tg.notify = real_collect, real_notify   # вернуть настоящие функции для следующих проверок
     assert sent == ["newchan 3"], sent                       # 1 и 2 — первый проход, 3 — новый пост
     assert db.get_order(db.list_orders("all", q="лол")[0]["id"])["matched"] == ""   # болтовня не заказ
 
 asyncio.run(check_poll())
+
+
+# --- быстрая проверка: первая страница Kwork; ошибка источника — пауза ---
+async def check_fast_poll():
+    import main
+    pages_asked = []
+
+    async def fake_kwork(session, pages):
+        pages_asked.append(pages)
+        return []                                         # «нет данных» — источник уходит на паузу
+
+    real_sources, main.sources.SOURCES = main.sources.SOURCES, [("Kwork", fake_kwork)]
+    main._paused_until.clear()
+    try:
+        await main.collect(None, None, full=False)
+        await main.collect(None, None, full=True)        # Kwork на паузе — не запрашивается
+        assert pages_asked == [1], pages_asked
+        main._paused_until.clear()
+        await main.collect(None, None, full=True)
+        assert pages_asked == [1, 3], pages_asked         # полная проверка — все страницы
+    finally:
+        main.sources.SOURCES = real_sources
+        main._paused_until.clear()
+
+for t in db.list_tg_sources():
+    db.set_tg_source(t["username"], enabled=0)           # в тесте не ходим в сеть за каналами
+asyncio.run(check_fast_poll())
+assert db.int_setting("poll_seconds") == 30
 assert "digitaltender" in [s["username"] for s in db.list_tg_sources()]
 
 # --- смена фильтров перепроверяет «Новые» заказы ---
