@@ -322,7 +322,7 @@ async def settings(request: web.Request):
                   tg_error=request.query.get("tg_error", ""),
                   follow_up_days=db.int_setting("follow_up_days"), min_budget=db.min_budget(),
                   poll_seconds=db.int_setting("poll_seconds"),
-                  ai=ai.settings(), ai_models=ai.MODELS, ai_msg=request.query.get("ai_msg", ""),
+                  ai=ai.settings(), ai_models=ai.MODELS, ai_work_style=ai.WORK_STYLE, ai_msg=request.query.get("ai_msg", ""),
                   ai_error=db.get_setting("ai_error"),
                   last_poll=db.get_setting("last_poll"), last_error=db.get_setting("last_error"))
 

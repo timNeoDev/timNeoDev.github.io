@@ -163,6 +163,10 @@
     <select name="model">{% for id, title in ai_models.items() %}<option value="{{ id }}" {{ 'selected' if ai.model == id }}>{{ title }}</option>{% endfor %}</select></label>
   <label class="wide">О себе — нейросеть пишет отклики от вашего имени по этому тексту
     <textarea name="about" rows="3" maxlength="2000">{{ ai.about }}</textarea></label>
+  <details class="wide">
+    <summary class="muted small" style="cursor: pointer">Нейросеть знает, что вы делаете проекты вместе с Claude Code · что именно ей сказано</summary>
+    <p class="tpl-body" style="margin-top: 8px">{{ ai_work_style }}</p>
+  </details>
   <label class="check wide"><input type="checkbox" name="enabled" value="1" {{ 'checked' if ai.enabled }}>
     Разбирать каждый новый заказ: оценка 0–100, цена, срок, риски и готовый отклик. Заказы, которые ИИ советует брать, становятся 🔥 горячими и поднимаются наверх.</label>
   <div class="wide row"><button class="btn btn-primary">Сохранить и проверить ключ</button></div>
