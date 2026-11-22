@@ -18,7 +18,7 @@ import db
 EXCHANGE = "Profi.ru"
 BASE = "https://profi.ru"
 ORDER_URL = BASE + "/backoffice/n.php?o={id}"
-MIN_INTERVAL = 60        # Profi опрашиваем бережно: не чаще раза в минуту
+MIN_INTERVAL = 30        # Profi опрашиваем бережно: не чаще раза в 30 секунд (одна лёгкая страница ленты)
 RENEW_BEFORE = 180       # продлеваем токен, если до конца осталось меньше 3 минут
 TIMEOUT = aiohttp.ClientTimeout(total=30)
 HEADERS = {

@@ -223,8 +223,85 @@ async def fetch_fl_full(session: aiohttp.ClientSession, link: str) -> str:
         return ""
 
 
+# Лента fl.ru/projects: свежая (no-store), сразу по всем разделам, с числом откликов и просмотров.
+# RSS FL кешируется до часа (max-age=3600) — из-за этого заказы приходили с опозданием до 30+ минут.
+FL_LIST_URL = "https://www.fl.ru/projects/"
+FL_BLOCK_RE = re.compile(r'(?=<div[^>]+id="project-item\d+")')
+AGO_RE = re.compile(r"(\d+)\s*(сек|мин|час|дн|ден)")
+
+
+def parse_ago(text: str, now: datetime) -> datetime | None:
+    """«1 час 59 минут назад», «10 минут назад», «только что» → момент публикации (по часам now)."""
+    text = text.lower()
+    if "только что" in text:
+        return now
+    delta, found = timedelta(), False
+    for num, unit in AGO_RE.findall(text):
+        found = True
+        n = int(num)
+        delta += {"сек": timedelta(seconds=n), "мин": timedelta(minutes=n), "час": timedelta(hours=n)}.get(
+            unit, timedelta(days=n))
+    return now - delta if found else None
+
+
+def _text(html: str) -> str:
+    return re.sub(r"\s+", " ", unescape(re.sub(r"<[^>]+>", " ", html)).replace("\xa0", " ")).strip()
+
+
+def parse_fl_list(html: str, now: datetime) -> list[dict]:
+    """Заказы со страницы fl.ru/projects (вакансии пропускаем — это наём в штат)."""
+    orders = []
+    for block in FL_BLOCK_RE.split(html)[1:]:
+        title_m = re.search(r'id="prj_name_(\d+)"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', block, re.S)
+        if not title_m:
+            continue
+        kind = re.search(r'b-post__bold b-layout__txt_inline-block[^"]*">(.*?)</span>', block, re.S)
+        if kind and _text(kind.group(1)).lower().startswith("ваканс"):
+            continue
+        price_m = re.search(r'b-post__price[^"]*">(.*?)</div>', block, re.S)
+        amounts = [int(re.sub(r"\D", "", a)) for a in re.findall(r"\d[\d\s]*", _text(price_m.group(1)) if price_m else "")]
+        desc_m = re.search(r'class="b-post__txt text-5 ?">(.*?)</div>', block, re.S)
+        description = _text(desc_m.group(1)) if desc_m else ""
+        when_m = re.search(r'text-gray-opacity-4 text-7 mr-16">(.*?)</span>', block, re.S)
+        published = parse_ago(_text(when_m.group(1)), now) if when_m else None
+        offers_m = re.search(r"(\d+)\s+ответ", block)
+        views_m = re.search(r'title="Количество просмотров".*?<span class="text-7">(.*?)</span>', block, re.S)
+        views = re.sub(r"\D", "", _text(views_m.group(1))) if views_m else ""
+        orders.append({
+            "source": "FL.ru", "link": "https://www.fl.ru" + title_m.group(2), "title": _text(title_m.group(3)),
+            "description": description, "category": "",
+            "budget": amounts[0] if amounts else 0, "budget_max": max(amounts) if amounts else 0,
+            "views": int(views or 0), "offers": int(offers_m.group(1)) if offers_m else 0,
+            "published_at": published.replace(microsecond=0).isoformat() if published else None,
+            "cut": description.endswith(("...", "…", ",...")),  # полный текст — на странице заказа
+        })
+    return orders
+
+
+async def fetch_fl_list(session: aiohttp.ClientSession, pages: int = 1) -> list[dict]:
+    orders = []
+    for page in range(1, pages + 1):
+        url = FL_LIST_URL if page == 1 else f"{FL_LIST_URL}page-{page}/"
+        async with session.get(url, headers=HEADERS, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            resp.raise_for_status()
+            orders += parse_fl_list(await resp.text(), msk_now())
+    return orders
+
+
 async def fetch_fl(session: aiohttp.ClientSession, pages: int = 1) -> list[dict]:
-    """Заказы FL.ru из RSS разделов «Программирование» и «Сайты». pages не используется: лента — одна страница."""
+    """Заказы FL.ru: свежая лента fl.ru/projects (частая проверка — 1 страница, полная — 2).
+    Если вёрстка сменилась и лента пустая — запасной путь через RSS (он опаздывает, но работает)."""
+    try:
+        if orders := await fetch_fl_list(session, min(pages, 2)):
+            return orders
+        logging.warning("FL.ru: в ленте не нашлось заказов — беру RSS")
+    except (aiohttp.ClientError, TimeoutError) as e:
+        logging.warning("FL.ru, лента: %s — беру RSS", e)
+    return await fetch_fl_rss(session)
+
+
+async def fetch_fl_rss(session: aiohttp.ClientSession) -> list[dict]:
+    """Заказы FL.ru из RSS разделов «Программирование» и «Сайты»."""
     orders, seen = [], set()
     for url in FL_FEEDS:
         try:
@@ -240,7 +317,7 @@ async def fetch_fl(session: aiohttp.ClientSession, pages: int = 1) -> list[dict]
 
 
 SOURCES = [("Kwork", fetch_kwork), ("FL.ru", fetch_fl)]
-UNKNOWN_OFFERS = ("TG ", "FL.ru", "Profi.ru")  # у этих источников число откликов неизвестно
+UNKNOWN_OFFERS = ("TG ", "Profi.ru")  # у этих источников число откликов неизвестно (FL — теперь известно из ленты)
 
 
 # ---------- Telegram ----------

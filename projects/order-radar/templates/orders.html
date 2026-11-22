@@ -39,7 +39,7 @@
     <div class="order-meta">
       <span class="price">{{ o.budget | rub }}{% if o.budget_max > o.budget %} – {{ o.budget_max | rub }}{% endif %}</span>
       <span>👁 <b>{{ o.views }}</b> просмотров</span>
-      <span>💬 <b>{{ o.offers }}</b> откликов</span>
+      <span>💬 <b>{{ "?" if o.source.startswith(UNKNOWN_OFFERS) else o.offers }}</b> откликов</span>
       <span>{{ o.source }} · {{ o.category or "без категории" }}</span>
       <span>{{ o.published_at | ago }}</span>
       {% if o.delay_sec is not none %}<span title="Сколько прошло от публикации до уведомления в Telegram">⚡ дошёл за {{ o.delay_sec }} сек</span>{% endif %}

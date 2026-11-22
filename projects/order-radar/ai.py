@@ -8,6 +8,7 @@ import re
 import aiohttp
 
 import db
+import sources
 
 API_URL = "https://api.munito.ai/inference/v1/chat/completions"
 MODELS = {  # чат-модели из GET /v1/models; бесплатный лимит — запросов в минуту (OCR и pplx-decider не для текста)
@@ -151,7 +152,7 @@ async def analyze(session: aiohttp.ClientSession, order) -> dict:
     if not s["key"]:
         raise AIError("ключ munito.ai не задан — добавьте его в «Настройки → Нейросеть»")
     budget = db.rub(order["budget"]) if order["budget"] else "не указан"
-    offers = "неизвестно" if order["source"].startswith(("TG ", "FL.ru", "Profi.ru")) else order["offers"]
+    offers = "неизвестно" if order["source"].startswith(sources.UNKNOWN_OFFERS) else order["offers"]
     prompt = PROMPT.format(about=s["about"], work_style=WORK_STYLE, source=order["source"], title=order["title"], budget=budget,
                            offers=offers, description=(order["description"] or "нет")[:6000])
     result = parse_answer(await chat(session, prompt, s["key"], s["model"]))
@@ -187,7 +188,7 @@ async def advise(session: aiohttp.ClientSession, order) -> str:
     if not s["key"]:
         raise AIError("ключ munito.ai не задан — добавьте его в «Настройки → Нейросеть»")
     budget = db.rub(order["budget"]) if order["budget"] else "не указан"
-    offers = "неизвестно" if order["source"].startswith(("TG ", "FL.ru", "Profi.ru")) else order["offers"]
+    offers = "неизвестно" if order["source"].startswith(sources.UNKNOWN_OFFERS) else order["offers"]
     prompt = ADVICE_PROMPT.format(about=s["about"], work_style=WORK_STYLE, source=order["source"], title=order["title"],
                                   budget=budget, offers=offers, description=(order["description"] or "нет")[:6000])
     text = re.sub(r"<think>.*?</think>", "", await chat(session, prompt, s["key"], s["model"]), flags=re.S).strip()

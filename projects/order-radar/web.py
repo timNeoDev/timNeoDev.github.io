@@ -44,7 +44,7 @@ def ago(iso: str | None) -> str:
 env.filters.update(rub=db.rub, ago=ago, month_label=lambda ym: MONTHS[int(ym[5:7]) - 1])
 env.globals.update(STAGES=db.STAGES, STAGE_GROUPS=db.STAGE_GROUPS, RESPONSE_STAGES=db.RESPONSE_STAGES,
                    WORK_STAGES=db.WORK_STAGES, ORDER_STATUSES=db.ORDER_STATUSES, FINANCE_TABS=FINANCE_TABS,
-                   ten=sources.ten, scam_flags=lambda o: sources.scam_flags(o, db.scam_words()))
+                   ten=sources.ten, UNKNOWN_OFFERS=sources.UNKNOWN_OFFERS, scam_flags=lambda o: sources.scam_flags(o, db.scam_words()))
 
 
 def render(request: web.Request, name: str, **ctx) -> web.Response:

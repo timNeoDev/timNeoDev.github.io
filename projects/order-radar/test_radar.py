@@ -29,6 +29,29 @@ assert (o["budget"], o["budget_max"], o["views"], o["offers"]) == (5000, 15000, 
 assert o["description"] == "Нужен бот [срочно] — сегодня"          # теги и &mdash; убраны, скобки не ломают JSON
 assert o["published_at"] == "2026-11-19T21:42:40"                  # дата последней публикации, а не создания
 
+# --- FL.ru: свежая лента fl.ru/projects (RSS кешируется до часа) ---
+FL_HTML = ('<div class="x" id="project-item111"><h2><a id="prj_name_111" class="a" href="/projects/111/bot.html">Telegram-бот '
+           '&amp; парсер</a></h2><div class="d-flex b-post__price p-0"><span>от 15&nbsp;000&nbsp;₽ – 30 000 ₽</span></div>'
+           '<div class="b-post__body"><div class="b-post__txt text-5 ">Нужен бот для записи,...</div></div>'
+           '<span class="b-post__bold b-layout__txt_inline-block text-7 text-dark mr-4">Заказ</span>'
+           '<span class="text-gray-opacity-4 text-7 mr-16">1 час 5 минут назад</span>'
+           '<span title="Количество просмотров" class="d"><svg></svg><span class="text-7">больше 300&#160;</span></span>'
+           '<a href="/projects/111/bot.html">12 ответов</a></div>'
+           '<div class="x" id="project-item222"><h2><a id="prj_name_222" href="/projects/222/job.html">В штат</a></h2>'
+           '<span class="b-post__bold b-layout__txt_inline-block text-7 text-dark mr-4">Вакансия&nbsp;</span></div>'
+           '<div class="x" id="project-item333"><h2><a id="prj_name_333" href="/projects/333/site.html">Сайт</a></h2>'
+           '<div class="b-post__price"><span>по договоренности</span></div>'
+           '<span class="b-post__bold b-layout__txt_inline-block text-7 text-dark mr-4">Заказ</span>'
+           '<span class="text-gray-opacity-4 text-7 mr-16">только что</span><a>Нет ответов</a></div>')
+fl = sources.parse_fl_list(FL_HTML, datetime(2026, 11, 23, 12, 0))
+assert [x["link"] for x in fl] == ["https://www.fl.ru/projects/111/bot.html", "https://www.fl.ru/projects/333/site.html"]
+assert fl[0]["title"] == "Telegram-бот & парсер" and (fl[0]["budget"], fl[0]["budget_max"]) == (15000, 30000)
+assert (fl[0]["views"], fl[0]["offers"], fl[0]["cut"]) == (300, 12, True)
+assert fl[0]["published_at"] == "2026-11-23T10:55:00" and fl[1]["published_at"] == "2026-11-23T12:00:00"
+assert (fl[1]["budget"], fl[1]["offers"]) == (0, 0)
+assert sources.parse_ago("2 дня назад", datetime(2026, 11, 23)) == datetime(2026, 11, 21)
+assert sources.parse_ago("вчера", datetime(2026, 11, 23)) is None
+
 # --- Profi.ru: лента специалиста (структура ответа BoSearchBoardItems) и cookie сессии ---
 import base64, json as _json, profi  # noqa: E401,E402
 snippet = {"id": "96314683", "type": "SNIPPET", "title": "Создание сайтов",
