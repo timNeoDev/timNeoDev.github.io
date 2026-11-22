@@ -19,7 +19,7 @@ DEFAULT_MODEL = next(iter(MODELS))
 DEFAULT_ABOUT = ("Тим, фрилансер: Telegram-боты на Python (aiogram 3), лендинги и сайты (HTML/CSS/JS), парсеры, "
                  "интеграции с API, автоматизация. Портфолио: https://timneodev.github.io/ . "
                  "Пример бота: https://t.me/zayavki_demo_pro_bot")
-TIMEOUT = aiohttp.ClientTimeout(total=40)
+TIMEOUT = aiohttp.ClientTimeout(total=90)
 
 PROMPT = """Ты помогаешь фрилансеру отбирать заказы и писать отклики. О фрилансере:
 {about}
@@ -55,7 +55,8 @@ def enabled() -> bool:
     return s["enabled"] and bool(s["key"])
 
 
-async def chat(session: aiohttp.ClientSession, prompt: str, key: str, model: str, max_tokens: int = 900) -> str:
+async def chat(session: aiohttp.ClientSession, prompt: str, key: str, model: str, max_tokens: int = 4000) -> str:
+    """Модели munito сначала «думают» (reasoning, до ~2000 токенов), потом отвечают — лимит с запасом на оба."""
     payload = {"model": model, "messages": [{"role": "user", "content": prompt}],
                "temperature": 0.4, "max_tokens": max_tokens}
     try:
@@ -68,7 +69,10 @@ async def chat(session: aiohttp.ClientSession, prompt: str, key: str, model: str
                 raise AIError("исчерпан лимит запросов munito.ai, попробую позже")
             if resp.status >= 400:
                 raise AIError(f"munito.ai ответил {resp.status}: {body[:200]}")
-            return json.loads(body)["choices"][0]["message"]["content"] or ""
+            choice = json.loads(body)["choices"][0]
+            if choice.get("finish_reason") == "length" and not (choice["message"].get("content") or "").strip():
+                raise AIError("модель долго рассуждала и не успела ответить — выберите DeepSeek V4.1 Flash")
+            return choice["message"]["content"] or ""
     except (aiohttp.ClientError, TimeoutError) as e:
         raise AIError(f"нет связи с munito.ai: {e}") from e
     except (KeyError, IndexError, TypeError, json.JSONDecodeError) as e:
@@ -111,7 +115,7 @@ async def analyze(session: aiohttp.ClientSession, order) -> dict:
 
 async def check_key(session: aiohttp.ClientSession, key: str, model: str) -> str:
     """Короткий запрос для проверки ключа. Возвращает ответ модели или бросает AIError."""
-    return (await chat(session, "Ответь одним словом: работает", key, model, max_tokens=20)).strip()[:100]
+    return (await chat(session, "Ответь одним словом: работает", key, model, max_tokens=300)).strip()[:100]
 
 
 async def safe_analyze(session: aiohttp.ClientSession, order) -> dict | None:
