@@ -36,13 +36,14 @@ def format_order(o) -> str:
 
 def order_kb(o):
     kb = InlineKeyboardBuilder()
+    kb.button(text="🔗 Перейти к заказу", url=o["link"])
     if o["status"] == "new":
-        kb.button(text="✅ Откликнулся", callback_data=f"resp:{o['id']}")
+        kb.button(text="✅ Откликнуться", callback_data=f"resp:{o['id']}")
         kb.button(text="🙈 Скрыть", callback_data=f"st:{o['id']}:hidden")
     else:
         kb.button(text=f"{db.ORDER_STATUSES[o['status']]} · вернуть", callback_data=f"st:{o['id']}:new")
     kb.button(text="📝 Шаблоны", callback_data="tpl")
-    kb.adjust(2, 1)
+    kb.adjust(2, 2)
     return kb.as_markup()
 
 

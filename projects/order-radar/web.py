@@ -156,11 +156,26 @@ async def order_status(request: web.Request):
 
 
 async def order_respond(request: web.Request):
+    """Откликнуться: создаёт сделку. ?go=order — сразу открыть заказ на бирже, чтобы написать отклик."""
+    order_id = int(request.match_info["id"])
     try:
-        deal_id = db.deal_from_order(int(request.match_info["id"]))
+        deal_id = db.deal_from_order(order_id)
     except ValueError:
         raise web.HTTPNotFound(text="Заказ не найден — возможно, база радара была очищена")
+    if request.query.get("go") == "order":
+        raise web.HTTPFound(db.get_order(order_id)["link"])  # ссылка из нашей базы: kwork.ru или t.me
     raise web.HTTPFound(f"/deals/{deal_id}")
+
+
+async def order_page(request: web.Request):
+    """Заказ целиком: полный текст, цифры, шанс и шаблоны откликов под рукой."""
+    o = db.get_order(int(request.match_info["id"]))
+    if not o:
+        raise web.HTTPNotFound(text="Заказ не найден — возможно, база радара была очищена")
+    now = sources.msk_now()
+    score = sources.chance(o, now)
+    return render(request, "order.html", o=o, hot=sources.is_hot(o, now), score=score,
+                  chance_label=sources.chance_label(score), templates=db.list_templates())
 
 
 # ---------- Сделки ----------
@@ -391,7 +406,7 @@ def create_app() -> web.Application:
         web.get("/login", login), web.post("/login", login), web.post("/logout", logout),
         web.get("/", home), web.get("/analytics", analytics), web.get("/clients", clients), web.get("/search", search),
         web.get("/orders", orders), web.post("/orders/status", order_status),
-        web.post("/orders/{id:\\d+}/respond", order_respond),
+        web.post("/orders/{id:\\d+}/respond", order_respond), web.get("/orders/{id:\\d+}", order_page),
         web.get("/deals", deals),
         web.get("/deals/new", deal_page), web.post("/deals/new", deal_page),
         web.get("/deals/{id:\\d+}", deal_page), web.post("/deals/{id:\\d+}", deal_page),

@@ -71,7 +71,7 @@
       <div class="stack">
       {% for o in hot %}
         <div class="row">
-          <a class="order-title small-title" href="{{ o.link }}" target="_blank" rel="noopener">{{ o.title }}</a>
+          <a class="order-title small-title" href="/orders/{{ o.id }}">{{ o.title }}</a>
           <span class="spacer"></span><span class="price">{{ o.budget | rub }}</span><span class="badge">💬 {{ o.offers }}</span>
         </div>
       {% endfor %}

@@ -32,7 +32,7 @@
       {% if hot %}<span class="badge hot">🔥 горячий</span>{% endif %}
       {% if view == "all" and not o.matched %}<span class="badge">не подходит под фильтры</span>{% endif %}
       {% if view == "all" and o.matched %}<span class="badge">{{ ORDER_STATUSES[o.status] }}</span>{% endif %}
-      <a class="order-title" href="{{ o.link }}" target="_blank" rel="noopener">{{ o.title }}</a>
+      <a class="order-title" href="/orders/{{ o.id }}">{{ o.title }}</a>
     </div>
     <div class="order-meta">
       <span class="price">{{ o.budget | rub }}{% if o.budget_max > o.budget %} – {{ o.budget_max | rub }}{% endif %}</span>
@@ -47,7 +47,8 @@
       <span class="spacer"></span>
       {% if o.status == "new" %}
         <form method="post" action="/orders/status"><input type="hidden" name="id" value="{{ o.id }}"><input type="hidden" name="status" value="hidden"><button class="btn btn-sm">🙈 Скрыть</button></form>
-        <form method="post" action="/orders/{{ o.id }}/respond"><button class="btn btn-sm btn-primary">✅ Откликнулся</button></form>
+        <a class="btn btn-sm" href="{{ o.link }}" target="_blank" rel="noopener">🔗 Перейти к заказу</a>
+        <form method="post" action="/orders/{{ o.id }}/respond?go=order" target="_blank"><button class="btn btn-sm btn-primary">✅ Откликнуться</button></form>
       {% elif o.status == "applied" %}
         <form method="post" action="/orders/{{ o.id }}/respond"><button class="btn btn-sm">🤝 Открыть сделку</button></form>
       {% else %}

@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}{{ o.title }}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p><a href="/orders" class="muted small">← Все заказы</a></p>
+    <h1>{{ o.title }}</h1>
+    <div class="row" style="margin-top: 8px">
+      <span class="badge chance-{{ chance_label }}" title="Шанс {{ score }} из 100: свежесть, число откликов, бюджет">шанс: {{ chance_label }}</span>
+      {% if hot %}<span class="badge hot">🔥 горячий</span>{% endif %}
+      <span class="badge">{{ ORDER_STATUSES[o.status] }}</span>
+      {% for w in o.matched.split(",") if w %}<span class="badge kw">{{ w }}</span>{% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-2" style="align-items: start">
+  <section class="card stack">
+    <div class="order-meta">
+      <span class="price">{{ o.budget | rub }}{% if o.budget_max > o.budget %} – {{ o.budget_max | rub }}{% endif %}</span>
+      <span>👁 <b>{{ o.views }}</b> просмотров</span>
+      <span>💬 <b>{{ o.offers }}</b> откликов</span>
+      <span>{{ o.source }} · {{ o.category or "без категории" }}</span>
+      <span>{{ o.published_at | ago }}</span>
+    </div>
+    <div class="tpl-body">{{ o.description or "Описания нет — откройте заказ на бирже." }}</div>
+
+    <div class="row">
+      <form method="post" action="/orders/{{ o.id }}/respond?go=order" target="_blank">
+        <button class="btn btn-primary">✅ Откликнуться</button>
+      </form>
+      <a class="btn" href="{{ o.link }}" target="_blank" rel="noopener">🔗 Перейти к заказу ↗</a>
+      {% if o.status == "new" %}
+        <form method="post" action="/orders/status"><input type="hidden" name="id" value="{{ o.id }}">
+          <input type="hidden" name="status" value="hidden"><button class="btn btn-ghost">🙈 Скрыть</button></form>
+      {% elif o.status == "applied" %}
+        <form method="post" action="/orders/{{ o.id }}/respond"><button class="btn btn-ghost">🤝 Открыть сделку</button></form>
+      {% endif %}
+    </div>
+    <p class="muted small">«Откликнуться» создаёт сделку в разделе «Сделки» и открывает заказ на бирже в новой вкладке — там и пишете отклик.</p>
+  </section>
+
+  <section class="card stack">
+    <h2>Шаблоны откликов <a href="/templates">изменить →</a></h2>
+    {% for t in templates %}
+      <div class="stack" style="gap: 6px">
+        <div class="row"><b>{{ t.title }}</b><span class="spacer"></span>
+          <button type="button" class="btn btn-sm btn-primary" data-copy="tpl-{{ t.id }}">Копировать</button></div>
+        <p class="tpl-body" id="tpl-{{ t.id }}">{{ t.body }}</p>
+      </div>
+    {% else %}<p class="muted">Шаблонов пока нет</p>{% endfor %}
+  </section>
+</div>
+{% endblock %}

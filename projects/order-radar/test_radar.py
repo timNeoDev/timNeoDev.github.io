@@ -196,6 +196,8 @@ assert "telegram" not in db.get_words("plus")                               # и
 
 # --- бот: тексты сообщений собираются без ошибок ---
 import bot  # noqa: E402
+kb_buttons = [b for row in bot.order_kb(db.get_order(oid)).inline_keyboard for b in row]
+assert kb_buttons[0].text == "🔗 Перейти к заказу" and kb_buttons[0].url == db.get_order(oid)["link"]
 assert "Бот для записи" in bot.format_order(db.get_order(oid)) and "шанс:" in bot.format_order(db.get_order(oid))
 
 # --- шанс получить заказ ---
@@ -274,6 +276,11 @@ async def check_web():
             assert resp.status == 200, (path, resp.status, (await resp.text())[:300])
         page = await (await client.get("/orders")).text()
         assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page and "<script>alert(1)" not in page
+        page = await (await client.get(f"/orders/{oid}")).text()
+        assert "Перейти к заказу" in page and "Откликнуться" in page and "Копировать" in page   # страница заказа
+        assert (await client.get("/orders/99999")).status == 404
+        resp = await client.post(f"/orders/{oid}/respond?go=order", allow_redirects=False)
+        assert resp.headers["Location"] == db.get_order(oid)["link"]               # откликнуться — сразу на биржу
         resp = await client.post("/orders/99999/respond", allow_redirects=False)
         assert resp.status == 404                                                  # несуществующий заказ — не 500
         resp = await client.post(f"/orders/{xss_id}/respond", allow_redirects=False)
