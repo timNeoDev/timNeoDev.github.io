@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Радар заказов{% endblock %} · Радар</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
+  <title>{% block title %}Заказы{% endblock %} · LastixParser</title>
+  <link rel="icon" type="image/svg+xml" href="/static/logo.svg?v={{ static_v }}">
   <link rel="stylesheet" href="/static/style.css?v={{ static_v }}">
 </head>
 <body>
 <div class="layout">
   <nav class="sidebar" aria-label="Разделы">
-    <div class="brand"><div class="brand-dot">📡</div><span>Радар заказов</span></div>
+    <div class="brand"><img class="brand-logo" src="/static/logo.svg?v={{ static_v }}" alt="" width="34" height="34"><span>Lastix<b>Parser</b></span></div>
     {% set links = [("/", "🏠", "Главная"), ("/orders", "📥", "Заказы с бирж"), ("/deals", "🤝", "Сделки"),
                     ("/finance", "💰", "Финансы"), ("/analytics", "📈", "Аналитика"), ("/clients", "👥", "Клиенты"),
                     ("/templates", "📝", "Шаблоны"), ("/settings", "⚙️", "Настройки")] %}

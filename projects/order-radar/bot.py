@@ -137,7 +137,7 @@ def digest_text() -> str:
 @router.message(CommandStart())
 async def cmd_start(message: Message):
     await message.answer(
-        "📡 <b>Радар заказов</b>\n\n"
+        "📡 <b>LastixParser</b> — ловлю заказы с бирж раньше всех\n\n"
         "Каждые 15–30 секунд проверяю Kwork, FL.ru и Telegram-каналы (Profi.ru — раз в минуту) и присылаю подходящие заказы.\n"
         "«🔗 Перейти к заказу» — откликаетесь на бирже, потом «✔ Я откликнулся» — отклик засчитан, сделка в админке.\n"
         "«✍️ Отклик от ИИ» пишет текст отклика под заказ.\n\n"

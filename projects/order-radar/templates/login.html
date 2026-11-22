@@ -3,13 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Вход · Радар заказов</title>
+  <title>Вход · LastixParser</title>
+  <link rel="icon" type="image/svg+xml" href="/static/logo.svg?v={{ static_v }}">
   <link rel="stylesheet" href="/static/style.css?v={{ static_v }}">
 </head>
 <body>
 <div class="login">
   <form class="card" method="post" action="/login">
-    <div class="brand" style="padding: 0"><div class="brand-dot">📡</div>Радар заказов</div>
+    <div class="brand" style="padding: 0"><img class="brand-logo" src="/static/logo.svg?v={{ static_v }}" alt="" width="40" height="40"><span>Lastix<b>Parser</b></span></div>
+    <p class="muted small brand-tagline">Ловит заказы с бирж раньше всех</p>
     <label>Пароль администратора
       <input type="password" name="password" autocomplete="current-password" autofocus required>
     </label>
