@@ -36,7 +36,7 @@
         <form method="post" action="/accounts" class="stack" style="margin-top: 12px">
           <input type="hidden" name="exchange" value="{{ a.exchange }}"><input type="hidden" name="action" value="connect">
           <label>Логин или телефон<input name="login" maxlength="100" autocomplete="off"></label>
-          <label>Данные входа (cookie сессии из браузера)<input name="secret" type="password" required autocomplete="off"></label>
+          <label>Данные входа (cookie сессии из браузера)<input name="secret" type="password" required autocomplete="new-password" data-lpignore="true"></label>
           <p class="muted small">Хранятся только в базе на этом компьютере. Не передавайте их никому.</p>
           <button class="btn btn-primary">Подключить</button>
         </form>
@@ -158,7 +158,7 @@
   {% if ai_msg %}<p class="wide {{ 'flash' if ai_msg.startswith('Ошибка') else 'muted' }}" role="status">{{ ai_msg }}</p>
   {% elif ai_error and ai.enabled %}<p class="wide flash" role="alert">Последняя ошибка: {{ ai_error }}</p>{% endif %}
   <label>Ключ API{% if ai.key %} <span class="badge kw">сохранён</span>{% endif %}
-    <input name="key" type="password" autocomplete="off" placeholder="{{ 'оставьте пустым, чтобы не менять' if ai.key else 'вставьте ключ из консоли munito.ai' }}">
+    <input name="key" type="password" autocomplete="new-password" data-lpignore="true" placeholder="{{ 'оставьте пустым, чтобы не менять' if ai.key else 'вставьте ключ из консоли munito.ai' }}">
     <span class="muted small">Ключ хранится только в базе радара. Создаётся в консоли munito.ai с правом «Inference».</span></label>
   <label>Модель
     <select name="model">{% for id, title in ai_models.items() %}<option value="{{ id }}" {{ 'selected' if ai.model == id }}>{{ title }}</option>{% endfor %}</select></label>

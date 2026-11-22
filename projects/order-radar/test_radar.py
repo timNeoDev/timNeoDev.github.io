@@ -377,6 +377,12 @@ async def check_web():
         resp = await client.post("/settings/ai", data={"model": ai.DEFAULT_MODEL, "about": "Тим", "enabled": "1"},
                                  allow_redirects=False)
         assert resp.status == 302 and db.get_setting("ai_enabled") == "1" and not ai.enabled()  # без ключа — выкл
+        resp = await client.post("/settings/ai", data={"key": "board=1; sid=abc; prfr_bo_tkn=x", "model": ai.DEFAULT_MODEL,
+                                                       "about": "Тим", "enabled": "1"}, allow_redirects=False)
+        assert "ai_msg=" in resp.headers["Location"] and not db.get_setting("ai_key")  # cookie вместо ключа не сохранена
+        assert ai.looks_like_key("sk-munito_AbC123xyz") and not ai.looks_like_key("a=1; b=2")
+        resp = await client.post("/accounts", data={"exchange": "Profi.ru", "action": "connect", "secret": "sk-key123"})
+        assert resp.status == 400 and not (db.get_account("Profi.ru")["secret"] or "")      # ключ вместо cookie Profi
         assert "Нейросеть munito.ai" in await (await client.get("/settings")).text()
         assert (await client.get("/orders/99999")).status == 404
         resp = await client.post(f"/orders/{oid}/respond", allow_redirects=False)

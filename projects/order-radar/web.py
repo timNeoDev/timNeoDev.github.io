@@ -358,7 +358,11 @@ async def general_save(request: web.Request):
 async def ai_save(request: web.Request):
     """Нейросеть munito.ai: ключ, модель, текст «о себе», вкл/выкл. Ключ проверяется коротким запросом."""
     form = await request.post()
-    if key := str(form.get("key", "")).strip():  # пустое поле — оставить сохранённый ключ
+    key = str(form.get("key", "")).strip()
+    if key and not ai.looks_like_key(key):  # браузер мог сам подставить в поле пароля чужое значение (cookie)
+        msg = "Ошибка: это не ключ munito.ai (похоже на cookie или пароль) — ключ не изменён, вставьте его заново"
+        raise web.HTTPFound(f"/settings?ai_msg={quote(msg)}#ai")
+    if key:  # пустое поле — оставить сохранённый ключ
         db.set_setting("ai_key", key)
     model = str(form.get("model", ""))
     if model in ai.MODELS:
@@ -387,6 +391,9 @@ async def account_action(request: web.Request):
     elif action == "disable":
         db.set_account_enabled(exchange, False)
     elif action == "connect":
+        if exchange == "Profi.ru" and "prfr_bo_tkn=" not in str(form.get("secret", "")):
+            raise web.HTTPBadRequest(text="Это не cookie Profi.ru: в ней нет prfr_bo_tkn. Скопируйте cookie со страницы "
+                                          "ленты заказов profi.ru (F12 → Network → n.php → Request Headers → cookie)")
         try:
             db.connect_account(exchange, str(form.get("login", "")), str(form.get("secret", "")))
             db.set_setting("profi_error", "")  # старая ошибка входа больше не актуальна

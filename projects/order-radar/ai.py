@@ -69,6 +69,11 @@ def settings() -> dict:
             "about": db.get_setting("ai_about") or DEFAULT_ABOUT, "enabled": db.get_setting("ai_enabled") == "1"}
 
 
+def looks_like_key(key: str) -> bool:
+    """Ключ API — одна строка без пробелов, «;» и «=» (так отсекаем cookie, которые браузер подставляет в поле пароля)."""
+    return 10 <= len(key) <= 300 and not re.search(r"[\s;=]", key)
+
+
 def enabled() -> bool:
     s = settings()
     return s["enabled"] and bool(s["key"])
