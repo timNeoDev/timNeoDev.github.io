@@ -393,7 +393,24 @@ async def check_web():
         db.save_ai(oid, {"ai_advice": "🎯 Брать: да"})
         assert "🎯 Брать: да" in await (await client.get(f"/orders/{oid}")).text()
         assert (await client.post("/orders/99999/advice", allow_redirects=False)).status == 404
+        # ответ заказчику и «короче/подробнее» на странице заказа
+        page = await (await client.get(f"/orders/{oid}")).text()
+        assert "💬 Ответ заказчику" in page and "✂️ Короче" in page and "📝 Подробнее" in page
+        db.save_ai(oid, {"ai_question": "Сколько стоит?", "ai_answer": "От 10 тыс. ₽"})
+        assert "От 10 тыс. ₽" in await (await client.get(f"/orders/{oid}")).text()
+        for path in ("rewrite", "answer"):
+            assert (await client.post(f"/orders/99999/{path}", allow_redirects=False)).status == 404
         db.set_setting("ai_key", "")
+        # настройки уведомлений и маркеры подвоха
+        await client.post("/settings/general", data={"ai_min_score": "7", "quiet_from": "23", "quiet_to": "8",
+                                                     "nudge_hours": "3", "scam_words": "оплата после,\nбартер, бартер"})
+        assert (db.int_setting("ai_min_score"), db.int_setting("quiet_from"), db.int_setting("nudge_hours")) == (7, 23, 3)
+        assert db.scam_words() == ["оплата после", "бартер"]
+        page = await (await client.get("/settings")).text()
+        assert "Тихие часы" in page and "оплата после, бартер" in page
+        db.set_setting("quiet_from", "0"); db.set_setting("quiet_to", "0"); db.set_setting("ai_min_score", "0")
+        # ИИ-статистика в аналитике
+        assert "Доверять ли оценке ИИ" in await (await client.get("/analytics")).text()
         resp = await client.post("/orders/99999/ai", allow_redirects=False)
         assert resp.status == 404
         resp = await client.post("/settings/ai", data={"model": ai.DEFAULT_MODEL, "about": "Тим", "enabled": "1"},
@@ -473,4 +490,34 @@ async def check_web():
         assert (await client.get("/settings")).status == 200
 
 asyncio.run(check_web())
+
+# --- тихие часы, маркеры подвоха, «заказчик ответил?», сводка за ночь, статистика ИИ ---
+import main  # noqa: E402
+import bot as tgbot  # noqa: E402
+db.set_setting("quiet_from", "23"); db.set_setting("quiet_to", "8")
+assert main.quiet_now(datetime(2026, 1, 1, 23)) and main.quiet_now(datetime(2026, 1, 1, 3))
+assert not main.quiet_now(datetime(2026, 1, 1, 8)) and not main.quiet_now(datetime(2026, 1, 1, 15))
+db.set_setting("quiet_from", "13"); db.set_setting("quiet_to", "15")
+assert main.quiet_now(datetime(2026, 1, 1, 14)) and not main.quiet_now(datetime(2026, 1, 1, 15))
+db.set_setting("quiet_from", "0"); db.set_setting("quiet_to", "0")
+assert not main.quiet_now(datetime(2026, 1, 1, 3))                                  # одинаковые — выключены
+assert sources.scam_flags({"title": "Сайт", "description": "Оплата ПОСЛЕ сдачи, бартер"}, ["оплата после", "бартер",
+                                                                                     "за отзыв"]) == ["оплата после", "бартер"]
+scam_id = db.upsert_order({"source": "Kwork", "link": "https://kwork.ru/projects/scam1", "title": "Бот, оплата после",
+                           "description": "", "category": "", "budget": 1000, "budget_max": 1000, "views": 0,
+                           "offers": 0, "published_at": None}, ["бот"])
+assert "⚠️ <b>Осторожно:</b> «оплата после»" in tgbot.format_order(db.get_order(scam_id))
+summary = tgbot.quiet_summary_text([scam_id, scam_id, 999999])
+assert summary and "Пока вы спали — подходящих заказов: 1" in summary and tgbot.quiet_summary_text([999999]) is None
+deal_id = db.deal_from_order(scam_id)
+db.set_setting("nudge_hours", "2")
+assert not db.nudge_due()                                                            # только что откликнулся
+with db.closing(db._conn()) as conn, conn:
+    conn.execute("UPDATE projects SET updated_at = datetime('now', 'localtime', '-3 hours') WHERE id = ?", (deal_id,))
+assert [d["id"] for d in db.nudge_due()] == [deal_id] and "Заказчик молчит" in tgbot.nudge_text(db.nudge_due()[0])
+db.set_nudged(deal_id)
+assert not db.nudge_due()
+db.save_ai(scam_id, {"ai_score": 80})
+top = [r for r in db.ai_stats() if r["bucket"] == "8–10"]
+assert top and top[0]["responses"] >= 1 and 0 <= top[0]["conversion"] <= 100
 print("all OK")

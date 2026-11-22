@@ -25,9 +25,17 @@ EXCHANGES = {"Kwork": "сбор открытых заказов, вход не �
              "FL.ru": "RSS-ленты разделов «Программирование» и «Сайты», вход не нужен",
              "Profi.ru": "заказы видны только после входа в аккаунт"}
 AI_COLUMNS = (("ai_score", "INTEGER"), ("ai_hot", "INTEGER DEFAULT 0"), ("ai_summary", "TEXT"), ("ai_price", "TEXT"),
-              ("ai_days", "TEXT"), ("ai_risks", "TEXT"), ("ai_reply", "TEXT"), ("ai_advice", "TEXT"))
+              ("ai_days", "TEXT"), ("ai_risks", "TEXT"), ("ai_reply", "TEXT"), ("ai_advice", "TEXT"),
+              ("ai_question", "TEXT"), ("ai_answer", "TEXT"))
+# Числовые настройки (форма «Общие»). ai_min_score — присылать в бот заказы с оценкой ИИ от N из 10 (0 — все);
+# quiet_from/quiet_to — тихие часы (одинаковые — выключены); nudge_hours — через сколько часов после отклика
+# спросить «заказчик ответил?» (0 — не спрашивать).
 SETTINGS_DEFAULTS = {"min_budget": "0", "tax_rate": "4", "income_goal": "50000", "follow_up_days": "3",
-                     "poll_seconds": "30"}
+                     "poll_seconds": "30", "ai_min_score": "0", "quiet_from": "0", "quiet_to": "0", "nudge_hours": "2"}
+# Слова-маркеры подвоха: заказ с ними помечается ⚠️ (меняются в настройках)
+DEFAULT_SCAM_WORDS = ["тестовое задание бесплатно", "бесплатное тестовое", "оплата после", "оплата по факту",
+                      "процент от продаж", "% от продаж", "за отзыв", "без предоплаты", "долю в проекте",
+                      "оплачу потом", "бартер", "срочно за 1 день", "в портфолио вместо оплаты"]
 
 DEFAULT_TEMPLATES = [
     ("Telegram-бот", "Здравствуйте! Сделаю бота под вашу задачу на Python (aiogram 3): удобное меню, база данных, "
@@ -102,7 +110,8 @@ def init_db() -> None:
         # Перенос из версии 2.0: новые поля сделок и новые названия этапов
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(projects)")}
         for col, ddl in (("response_cost", "INTEGER DEFAULT 0"), ("refund", "INTEGER DEFAULT 0"),
-                         ("follow_up", "TEXT"), ("via_response", "INTEGER DEFAULT 0")):
+                         ("follow_up", "TEXT"), ("via_response", "INTEGER DEFAULT 0"),
+                         ("nudged", "INTEGER DEFAULT 0")):  # nudged — уже спросили «заказчик ответил?»
             if col not in cols:
                 conn.execute(f"ALTER TABLE projects ADD COLUMN {col} {ddl}")
         # Разбор заказа нейросетью и скорость доставки уведомления
@@ -569,6 +578,46 @@ def overview() -> dict:
     s["avg_check"] = round(s["avg_check"])
     s["avg_budget"] = round(s["avg_budget"])
     return s
+
+
+def scam_words() -> list[str]:
+    raw = get_setting("scam_words")
+    words = DEFAULT_SCAM_WORDS if raw is None else raw.split(",")
+    return [w.strip().lower() for w in words if w.strip()]
+
+
+def nudge_due():
+    """Отклики без движения дольше nudge_hours часов, о которых ещё не спрашивали."""
+    hours = int_setting("nudge_hours")
+    if hours <= 0:
+        return []
+    with closing(_conn()) as conn:
+        return conn.execute(
+            _DEAL_SELECT + """ WHERE p.stage = 'sent' AND COALESCE(p.nudged, 0) = 0
+               AND p.updated_at <= datetime('now', 'localtime', ?)
+               AND p.updated_at >= datetime('now', 'localtime', '-3 days')  -- старые отклики не ворошим
+               ORDER BY p.updated_at LIMIT 5""",
+            (f"-{hours} hours",)).fetchall()
+
+
+def set_nudged(deal_id: int) -> None:
+    with closing(_conn()) as conn, conn:
+        conn.execute("UPDATE projects SET nudged = 1 WHERE id = ?", (deal_id,))
+
+
+def ai_stats() -> list[dict]:
+    """Доверять ли оценке ИИ: отклики по группам оценки и сколько из них дошло до работы и оплаты."""
+    with closing(_conn()) as conn:
+        rows = conn.execute(
+            f"""SELECT CASE WHEN o.ai_score IS NULL THEN 'без оценки'
+                            WHEN o.ai_score >= 75 THEN '8–10' WHEN o.ai_score >= 46 THEN '5–7' ELSE '1–4' END AS bucket,
+                       COUNT(*) AS responses, SUM(p.stage IN {_in((*WORK_STAGES, 'paid'))}) AS won,
+                       SUM(p.stage = 'paid') AS paid
+                FROM projects p JOIN orders o ON o.id = p.order_id WHERE p.via_response = 1 GROUP BY 1"""
+        ).fetchall()
+    order = {"8–10": 0, "5–7": 1, "1–4": 2, "без оценки": 3}
+    result = [dict(r, conversion=round(100 * r["won"] / r["responses"]) if r["responses"] else 0) for r in rows]
+    return sorted(result, key=lambda r: order[r["bucket"]])
 
 
 def responses_by_source() -> list[dict]:

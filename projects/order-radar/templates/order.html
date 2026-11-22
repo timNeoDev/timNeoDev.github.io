@@ -10,6 +10,7 @@
       {% if hot %}<span class="badge hot">🔥 горячий</span>{% endif %}
       <span class="badge">{{ ORDER_STATUSES[o.status] }}</span>
       {% for w in o.matched.split(",") if w %}<span class="badge kw">{{ w }}</span>{% endfor %}
+      {% for w in scam_flags(o) %}<span class="badge warn" title="Слово-маркер подвоха — проверьте условия">⚠️ {{ w }}</span>{% endfor %}
     </div>
   </div>
 </div>
@@ -56,7 +57,11 @@
       <div class="row"><b>Отклик под этот заказ</b><span class="spacer"></span>
         <button type="button" class="btn btn-sm btn-primary" data-copy="ai-reply">Копировать</button></div>
       <p class="tpl-body" id="ai-reply">{{ o.ai_reply }}</p>
-      <form method="post" action="/orders/{{ o.id }}/ai"><button class="btn btn-sm">↻ Написать заново</button></form>
+      <div class="row">
+        <form method="post" action="/orders/{{ o.id }}/rewrite"><input type="hidden" name="mode" value="short"><button class="btn btn-sm">✂️ Короче</button></form>
+        <form method="post" action="/orders/{{ o.id }}/rewrite"><input type="hidden" name="mode" value="long"><button class="btn btn-sm">📝 Подробнее</button></form>
+        <form method="post" action="/orders/{{ o.id }}/ai"><button class="btn btn-sm">↻ Написать заново</button></form>
+      </div>
     {% elif ai_key %}
       <p class="muted">Нейросеть оценит, стоит ли браться, прикинет цену и срок и напишет отклик под этот заказ.</p>
       <form method="post" action="/orders/{{ o.id }}/ai"><button class="btn btn-primary">🤖 Разобрать заказ</button></form>
@@ -75,6 +80,21 @@
       <p class="muted">Брать ли заказ, на что надавить в отклике, что спросить у заказчика, как назвать цену и где подвох.</p>
       <form method="post" action="/orders/{{ o.id }}/advice"><button class="btn btn-primary">💡 Получить совет</button></form>
     {% endif %}
+  </section>
+
+  <section class="card stack ai-box" id="answer">
+    <h2>💬 Ответ заказчику</h2>
+    {% if o.ai_answer %}
+      <p class="muted small">Заказчик: «{{ o.ai_question }}»</p>
+      <div class="row"><b>Ваш ответ</b><span class="spacer"></span>
+        <button type="button" class="btn btn-sm btn-primary" data-copy="ai-answer">Копировать</button></div>
+      <p class="tpl-body" id="ai-answer">{{ o.ai_answer }}</p>
+    {% endif %}
+    <form method="post" action="/orders/{{ o.id }}/answer" class="stack">
+      <label>{{ "Новый вопрос заказчика" if o.ai_answer else "Вставьте, что написал заказчик в чате биржи" }}
+        <textarea name="question" rows="3" required maxlength="2000" placeholder="Например: А сколько будет стоить с админкой и за какой срок?"></textarea></label>
+      <button class="btn btn-primary btn-sm">💬 Написать ответ</button>
+    </form>
   </section>
   {% endif %}
 

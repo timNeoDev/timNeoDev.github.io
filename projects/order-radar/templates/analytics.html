@@ -54,6 +54,22 @@
   </section>
 
   <section class="card" style="grid-column: 1 / -1">
+    <h2>🤖 Доверять ли оценке ИИ <span class="muted small">ваши отклики по оценке нейросети</span></h2>
+    {% if ai_stats %}
+    <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Оценка ИИ</th><th class="num">Откликов</th><th class="num">В работу</th><th class="num">Оплачено</th><th class="num">Конверсия</th></tr></thead>
+      {% for r in ai_stats %}
+      <tr><td><b>{{ r.bucket }}</b></td><td class="num">{{ r.responses }}</td><td class="num">{{ r.won }}</td>
+        <td class="num">{{ r.paid }}</td><td class="num">{{ r.conversion }}%</td></tr>
+      {% endfor %}
+    </table>
+    </div>
+    <p class="muted small" style="margin-top: 12px">Если у заказов с оценкой 8–10 конверсия заметно выше — ИИ угадывает, и фильтр «ИИ от N/10» в настройках можно поднять.</p>
+    {% else %}<p class="empty">Пока нет откликов на заказы с разбором ИИ</p>{% endif %}
+  </section>
+
+  <section class="card" style="grid-column: 1 / -1">
     <h2>Рынок: что заказывают чаще <span class="muted small">кол-во · средний бюджет</span></h2>
     {% if categories %}{{ hbars(categories, "budget") }}{% else %}<p class="empty">Данных пока нет</p>{% endif %}
   </section>

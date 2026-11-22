@@ -199,6 +199,71 @@ async def advise(session: aiohttp.ClientSession, order) -> str:
     return text
 
 
+REWRITE_MODES = {
+    "short": "Сделай его короче: 2-3 предложения, до 400 символов. Оставь суть: как сделаешь, срок, цену и вопрос.",
+    "long": "Сделай его подробнее: 6-8 предложений, до 1300 символов. Распиши по шагам, как сделаешь, что получит "
+            "заказчик, срок и цену, задай 1-2 уточняющих вопроса.",
+}
+ORDER_CONTEXT = """О фрилансере:
+{about}
+
+{work_style}
+
+Заказ с биржи {source}:
+Название: {title}
+Бюджет: {budget}
+Описание:
+{description}"""
+
+
+def _order_context(s: dict, order) -> str:
+    budget = db.rub(order["budget"]) if order["budget"] else "не указан"
+    return ORDER_CONTEXT.format(about=s["about"], work_style=WORK_STYLE, source=order["source"], title=order["title"],
+                                budget=budget, description=(order["description"] or "нет")[:6000])
+
+
+def _clean(text: str) -> str:
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip().strip('"«»').strip()
+    if not text:
+        raise AIError("модель вернула пустой ответ — попробуйте ещё раз")
+    return text[:2000]
+
+
+async def rewrite(session: aiohttp.ClientSession, order, mode: str) -> str:
+    """Переписать отклик короче или подробнее. Сохраняет новый отклик (ai_reply) и возвращает его."""
+    s = settings()
+    if not s["key"]:
+        raise AIError("ключ munito.ai не задан — добавьте его в «Настройки → Нейросеть»")
+    if mode not in REWRITE_MODES:
+        raise AIError("неизвестный режим")
+    current = (order["ai_reply"] or "").strip()
+    task = (f"Вот отклик заказчику:\n{current}\n\n{REWRITE_MODES[mode]}" if current else
+            f"Напиши отклик заказчику от первого лица. {REWRITE_MODES[mode]}")
+    prompt = (f"{_order_context(s, order)}\n\n{task}\nДай ссылку на портфолио, не выдумывай опыт и кейсы, "
+              "не упоминай ИИ и нейросети. Ответь только текстом отклика, без пояснений.")
+    text = _clean(await chat(session, prompt, s["key"], s["model"]))
+    db.save_ai(order["id"], {"ai_reply": text})
+    return text
+
+
+async def answer_client(session: aiohttp.ClientSession, order, question: str) -> str:
+    """Ответ на вопрос заказчика из чата биржи — с учётом заказа. Сохраняет вопрос и ответ в базе."""
+    s = settings()
+    if not s["key"]:
+        raise AIError("ключ munito.ai не задан — добавьте его в «Настройки → Нейросеть»")
+    question = question.strip()[:2000]
+    if not question:
+        raise AIError("вставьте вопрос заказчика")
+    prompt = (f"{_order_context(s, order)}\n\nЗаказчик написал фрилансеру в чате биржи:\n«{question}»\n\n"
+              "Напиши ответ от лица фрилансера: вежливо, по делу, конкретно, 2-5 предложений. Если вопрос про цену "
+              "или срок — назови реалистичные цифры. Если чего-то не хватает — задай уточняющий вопрос. "
+              "Не выдумывай опыт, не упоминай ИИ и нейросети, не уводи общение за пределы биржи. "
+              "Ответь только текстом сообщения.")
+    text = _clean(await chat(session, prompt, s["key"], s["model"]))
+    db.save_ai(order["id"], {"ai_question": question, "ai_answer": text})
+    return text
+
+
 async def check_key(session: aiohttp.ClientSession, key: str, model: str) -> str:
     """Короткий запрос для проверки ключа. Возвращает ответ модели или бросает AIError."""
     return (await chat(session, "Ответь одним словом: работает", key, model, max_tokens=300,

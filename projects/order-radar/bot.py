@@ -1,4 +1,5 @@
 """Telegram-бот радара: уведомления о заказах, отклики, фильтры, напоминания. Отвечает только владельцу."""
+import time
 from datetime import date
 from html import escape
 
@@ -58,6 +59,8 @@ def format_order(o) -> str:
     ]
     if (delay := sources.field(o, "delay_sec")) is not None:
         lines.append(f"⚡ дошёл за <b>{fmt_delay(delay)}</b> после публикации")
+    if flags := sources.scam_flags(o, db.scam_words()):
+        lines.append(f"⚠️ <b>Осторожно:</b> {escape(', '.join(f'«{w}»' for w in flags))}")
     if o["description"]:
         lines += ["", f"<blockquote expandable>{escape(shorten(o['description'], 2500))}</blockquote>"]
     if sources.field(o, "ai_score") is not None:
@@ -79,10 +82,59 @@ def order_kb(o):
         kb.button(text=f"{db.ORDER_STATUSES[o['status']]} · вернуть", callback_data=f"st:{o['id']}:new")
     kb.button(text="✍️ Отклик от ИИ", callback_data=f"ai:{o['id']}")
     kb.button(text="💡 Совет ИИ", callback_data=f"adv:{o['id']}")
+    kb.button(text="💬 Ответ заказчику", callback_data=f"ask:{o['id']}")
     kb.button(text="📝 Шаблоны", callback_data="tpl")
     if o["status"] == "new":
         kb.button(text="🙈 Скрыть", callback_data=f"st:{o['id']}:hidden")
-    kb.adjust(2, 2, 2)
+    kb.adjust(2, 2, 2, 1)
+    return kb.as_markup()
+
+
+def reply_kb(order_id: int):
+    """Под готовым откликом ИИ: переписать короче или подробнее."""
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✂️ Короче", callback_data=f"rw:{order_id}:short")
+    kb.button(text="📝 Подробнее", callback_data=f"rw:{order_id}:long")
+    return kb.as_markup()
+
+
+# ---------- Тихие часы и «заказчик ответил?» ----------
+
+def quiet_summary_text(order_ids: list[int]) -> str | None:
+    """Утро после тихих часов: что пришло ночью, лучшие — сверху."""
+    now = sources.msk_now()
+    orders = [o for o in (db.get_order(i) for i in dict.fromkeys(order_ids)) if o and o["status"] == "new"]
+    if not orders:
+        return None
+    orders.sort(key=lambda o: (not sources.is_hot(o, now), -sources.chance(o, now)))
+    lines = [f"☀️ <b>Пока вы спали — подходящих заказов: {len(orders)}</b>"
+             + (f", горячих: {sum(sources.is_hot(o, now) for o in orders)}" if any(sources.is_hot(o, now) for o in orders) else ""),
+             ""]
+    for o in orders[:10]:
+        ai_mark = f" · 🤖 {sources.ten(o['ai_score'])}/10" if sources.field(o, "ai_score") is not None else ""
+        lines.append(f"{'🔥 ' if sources.is_hot(o, now) else '• '}<a href=\"{escape(o['link'])}\">{escape(o['title'][:70])}</a>"
+                     f" — {rub(o['budget']) if o['budget'] else 'договорная'}{ai_mark}")
+    if len(orders) > 10:
+        lines.append(f"\n…и ещё {len(orders) - 10} — в админке: {ADMIN_URL}/orders")
+    return "\n".join(lines)
+
+
+NUDGE_TEMPLATE = ("Здравствуйте! Подскажите, пожалуйста, задача ещё актуальна? Готов приступить в ближайшее время "
+                  "и ответить на вопросы по реализации.")
+
+
+def nudge_text(deal) -> str:
+    return (f"⏳ <b>Заказчик молчит</b>\n\nВы откликнулись на «{escape(deal['title'][:80])}» "
+            f"({escape(deal['source'] or 'биржа')}), ответа пока нет. Можно напомнить о себе — "
+            f"нажмите на текст, чтобы скопировать:\n\n<code>{escape(NUDGE_TEMPLATE)}</code>")
+
+
+def nudge_kb(deal_id: int):
+    kb = InlineKeyboardBuilder()
+    kb.button(text="💬 Заказчик ответил", callback_data=f"ng:{deal_id}:dialog")
+    kb.button(text="✔ Напомнил", callback_data=f"ng:{deal_id}:ok")
+    kb.button(text="✖ Отказ", callback_data=f"ng:{deal_id}:lost")
+    kb.adjust(1, 2)
     return kb.as_markup()
 
 
@@ -303,7 +355,95 @@ async def ai_reply(call: CallbackQuery):
     else:
         await call.answer()
     await call.message.answer(f"✍️ <b>Отклик на «{escape(o['title'][:80])}»</b>\n"
-                              f"<i>нажмите на текст, чтобы скопировать</i>\n\n<code>{escape(o['ai_reply'])}</code>")
+                              f"<i>нажмите на текст, чтобы скопировать</i>\n\n<code>{escape(o['ai_reply'])}</code>",
+                              reply_markup=reply_kb(o["id"]))
+
+
+@router.callback_query(F.data.startswith("rw:"))
+async def ai_rewrite(call: CallbackQuery):
+    """Переписать отклик ИИ короче или подробнее."""
+    _, order_id, mode = call.data.split(":")
+    o = db.get_order(int(order_id))
+    if not o:
+        await call.answer("Заказ не найден — база радара была очищена", show_alert=True)
+        return
+    await call.answer("✂️ Сокращаю…" if mode == "short" else "📝 Расписываю подробнее…")
+    try:
+        async with aiohttp.ClientSession() as session:
+            text = await ai.rewrite(session, o, mode)
+    except ai.AIError as e:
+        await call.message.answer(f"🤖 Не получилось: {escape(str(e))}")
+        return
+    label = "короче" if mode == "short" else "подробнее"
+    await call.message.answer(f"✍️ <b>Отклик {label}</b> · <i>нажмите на текст, чтобы скопировать</i>\n\n"
+                              f"<code>{escape(text)}</code>", reply_markup=reply_kb(o["id"]))
+
+
+# ---------- «Ответ заказчику»: вопрос из чата биржи → ответ от ИИ ----------
+
+_asking: dict[str, float | int] = {}  # заказ, по которому ждём вопрос заказчика, и до какого времени
+
+
+@router.callback_query(F.data.startswith("ask:"))
+async def ask_client_question(call: CallbackQuery):
+    o = db.get_order(int(call.data.split(":")[1]))
+    if not o:
+        await call.answer("Заказ не найден — база радара была очищена", show_alert=True)
+        return
+    if not ai.settings()["key"]:
+        await call.answer("Добавьте ключ munito.ai в админке: Настройки → Нейросеть", show_alert=True)
+        return
+    _asking.update(order=o["id"], until=time.monotonic() + 900)
+    await call.answer()
+    await call.message.answer(f"💬 Пришлите следующим сообщением, что написал заказчик по «{escape(o['title'][:80])}» — "
+                              "отвечу с учётом заказа. Передумали — /cancel")
+
+
+@router.message(Command("cancel"))
+async def cmd_cancel(message: Message):
+    _asking.clear()
+    await message.answer("Ок, отменил.")
+
+
+@router.message(F.text & ~F.text.startswith("/"))
+async def client_question(message: Message):
+    """Любой текст (не команда) — вопрос заказчика, если до этого нажали «💬 Ответ заказчику»."""
+    if not _asking or _asking["until"] < time.monotonic():
+        _asking.clear()
+        await message.answer("Чтобы ИИ ответил заказчику, нажмите «💬 Ответ заказчику» под нужным заказом.")
+        return
+    o = db.get_order(int(_asking["order"]))
+    _asking.clear()
+    if not o:
+        await message.answer("Заказ не найден — база радара была очищена")
+        return
+    wait = await message.answer("💬 Пишу ответ, 5–20 секунд…")
+    try:
+        async with aiohttp.ClientSession() as session:
+            text = await ai.answer_client(session, o, message.text)
+    except ai.AIError as e:
+        await wait.edit_text(f"🤖 Не получилось: {escape(str(e))}")
+        return
+    await wait.edit_text(f"💬 <b>Ответ заказчику</b> · «{escape(o['title'][:60])}»\n"
+                         f"<i>нажмите на текст, чтобы скопировать</i>\n\n<code>{escape(text)}</code>")
+
+
+@router.callback_query(F.data.startswith("ng:"))
+async def nudge_answer(call: CallbackQuery):
+    _, deal_id, action = call.data.split(":")
+    if action == "dialog":
+        db.set_stage(int(deal_id), "dialog")
+        note = "Отлично! Сделка → «В диалоге»"
+    elif action == "lost":
+        db.set_stage(int(deal_id), "lost")
+        note = "Записал отказ"
+    else:
+        note = "Хорошо, напомню в утренней сводке, если ответа так и не будет"
+    await call.answer(note)
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except TelegramBadRequest:
+        pass
 
 
 @router.callback_query(F.data.startswith("adv:"))

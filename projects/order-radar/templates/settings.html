@@ -226,7 +226,7 @@
   {% endfor %}
 </div>
 
-<h2 class="section-title">Цели и напоминания</h2>
+<h2 class="section-title" id="general">Цели, уведомления и напоминания</h2>
 <form class="card form-grid" method="post" action="/settings/general">
   <label>Минимальный бюджет заказа, ₽<input name="min_budget" type="number" min="0" step="500" value="{{ min_budget }}"></label>
   <label>Цель дохода на месяц, ₽<input name="income_goal" type="number" min="0" step="1000" value="{{ s.income_goal }}"></label>
@@ -235,6 +235,22 @@
   <label>«Пора напомнить» через, дней<input name="follow_up_days" type="number" min="1" max="30" value="{{ follow_up_days }}"></label>
   <label>Проверять биржи и каналы каждые, сек<input name="poll_seconds" type="number" min="15" max="600" value="{{ poll_seconds }}">
     <span class="muted small">Минимум 15. Раз в 5 минут — полная проверка всех страниц. Источник, ответивший ошибкой, получает паузу 2 минуты.</span></label>
+
+  <h3 class="wide">Уведомления в Telegram</h3>
+  <label>Присылать заказы с оценкой ИИ от
+    <select name="ai_min_score">
+      <option value="0" {{ 'selected' if ai_min_score == 0 }}>все (фильтр выключен)</option>
+      {% for n in range(3, 10) %}<option value="{{ n }}" {{ 'selected' if ai_min_score == n }}>{{ n }}/10</option>{% endfor %}
+    </select>
+    <span class="muted small">Сначала нейросеть разбирает заказ, в бот приходят только подходящие — остальные на сайте. Если нейросеть не ответила, заказ всё равно придёт.</span></label>
+  <label>Тихие часы
+    <span class="row" style="gap: 8px">с <select name="quiet_from">{% for h in range(24) %}<option value="{{ h }}" {{ 'selected' if quiet_from == h }}>{{ '%02d' % h }}:00</option>{% endfor %}</select>
+      до <select name="quiet_to">{% for h in range(24) %}<option value="{{ h }}" {{ 'selected' if quiet_to == h }}>{{ '%02d' % h }}:00</option>{% endfor %}</select></span>
+    <span class="muted small">{% if quiet_from == quiet_to %}Выключены — одинаковое время. Например, с 23:00 до 08:00.{% else %}Ночью заказы копятся молча, после — сводка «пока вы спали».{% endif %}</span></label>
+  <label>Спросить «заказчик ответил?» через, часов<input name="nudge_hours" type="number" min="0" max="72" value="{{ nudge_hours }}">
+    <span class="muted small">После «Я откликнулся». 0 — не спрашивать. Пришлю и готовый текст, чтобы напомнить о себе.</span></label>
+  <label class="wide">⚠️ Слова-маркеры подвоха<textarea name="scam_words" rows="3">{{ scam_words }}</textarea>
+    <span class="muted small">Через запятую. Заказы с этими словами помечаются ⚠️ в боте и на сайте — можно вписать и ник заказчика-кидалы, если он попадает в текст заказа.</span></label>
   <div class="wide row"><button class="btn btn-primary">Сохранить</button>
     <span class="muted small">Последняя проверка бирж: {{ last_poll or "ещё не было" }}{% if last_error %} · {{ last_error }}{% endif %}</span></div>
 </form>

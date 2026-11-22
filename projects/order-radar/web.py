@@ -44,7 +44,7 @@ def ago(iso: str | None) -> str:
 env.filters.update(rub=db.rub, ago=ago, month_label=lambda ym: MONTHS[int(ym[5:7]) - 1])
 env.globals.update(STAGES=db.STAGES, STAGE_GROUPS=db.STAGE_GROUPS, RESPONSE_STAGES=db.RESPONSE_STAGES,
                    WORK_STAGES=db.WORK_STAGES, ORDER_STATUSES=db.ORDER_STATUSES, FINANCE_TABS=FINANCE_TABS,
-                   ten=sources.ten)
+                   ten=sources.ten, scam_flags=lambda o: sources.scam_flags(o, db.scam_words()))
 
 
 def render(request: web.Request, name: str, **ctx) -> web.Response:
@@ -122,7 +122,7 @@ async def home(request: web.Request):
 
 async def analytics(request: web.Request):
     return render(request, "analytics.html", s=db.overview(), funnel=db.funnel(), by_source=db.responses_by_source(),
-                  follow_ups=db.follow_ups(), categories=db.top_categories(8))
+                  follow_ups=db.follow_ups(), categories=db.top_categories(8), ai_stats=db.ai_stats())
 
 
 async def clients(request: web.Request):
@@ -203,6 +203,36 @@ async def order_ai(request: web.Request):
     except ai.AIError as e:
         msg = f"Ошибка: {e}"
     raise web.HTTPFound(f"/orders/{o['id']}" + (f"?ai_msg={quote(msg)}" if msg else "") + "#ai")
+
+
+async def order_rewrite(request: web.Request):
+    """Переписать отклик ИИ короче или подробнее."""
+    o = db.get_order(int(request.match_info["id"]))
+    if not o:
+        raise web.HTTPNotFound(text="Заказ не найден — возможно, база радара была очищена")
+    form = await request.post()
+    msg = ""
+    try:
+        async with aiohttp.ClientSession() as session:
+            await ai.rewrite(session, o, str(form.get("mode", "")))
+    except ai.AIError as e:
+        msg = f"Ошибка: {e}"
+    raise web.HTTPFound(f"/orders/{o['id']}" + (f"?ai_msg={quote(msg)}" if msg else "") + "#ai")
+
+
+async def order_answer(request: web.Request):
+    """Ответ на вопрос заказчика из чата биржи."""
+    o = db.get_order(int(request.match_info["id"]))
+    if not o:
+        raise web.HTTPNotFound(text="Заказ не найден — возможно, база радара была очищена")
+    form = await request.post()
+    msg = ""
+    try:
+        async with aiohttp.ClientSession() as session:
+            await ai.answer_client(session, o, str(form.get("question", "")))
+    except ai.AIError as e:
+        msg = f"Ошибка: {e}"
+    raise web.HTTPFound(f"/orders/{o['id']}" + (f"?ai_msg={quote(msg)}" if msg else "") + "#answer")
 
 
 async def order_advice(request: web.Request):
@@ -337,7 +367,9 @@ async def settings(request: web.Request):
                   tg_keys_saved=bool(api_id and api_hash), tg_msg=request.query.get("tg_msg", ""),
                   tg_error=request.query.get("tg_error", ""),
                   follow_up_days=db.int_setting("follow_up_days"), min_budget=db.min_budget(),
-                  poll_seconds=db.int_setting("poll_seconds"),
+                  poll_seconds=db.int_setting("poll_seconds"), ai_min_score=db.int_setting("ai_min_score"),
+                  quiet_from=db.int_setting("quiet_from"), quiet_to=db.int_setting("quiet_to"),
+                  nudge_hours=db.int_setting("nudge_hours"), scam_words=", ".join(db.scam_words()),
                   ai=ai.settings(), ai_models=ai.MODELS, ai_work_style=ai.WORK_STYLE, ai_msg=request.query.get("ai_msg", ""),
                   ai_error=db.get_setting("ai_error"),
                   profi_pending=profi.login_pending(), profi_msg=request.query.get("profi_msg", ""),
@@ -368,6 +400,9 @@ async def general_save(request: web.Request):
     for key in db.SETTINGS_DEFAULTS:
         if key in form:
             db.set_setting(key, max(to_int(form[key]), 0))
+    if "scam_words" in form:  # слова-маркеры подвоха через запятую или с новой строки
+        words = [w.strip() for w in str(form["scam_words"]).replace("\n", ",").split(",") if w.strip()]
+        db.set_setting("scam_words", ",".join(dict.fromkeys(words))[:3000])
     db.rematch_new_orders()  # мог измениться минимальный бюджет
     raise web.HTTPFound("/settings")
 
@@ -501,7 +536,8 @@ def create_app() -> web.Application:
         web.get("/", home), web.get("/analytics", analytics), web.get("/clients", clients), web.get("/search", search),
         web.get("/orders", orders), web.post("/orders/status", order_status),
         web.post("/orders/{id:\\d+}/respond", order_respond), web.get("/orders/{id:\\d+}", order_page),
-        web.post("/orders/{id:\\d+}/ai", order_ai), web.post("/orders/{id:\\d+}/advice", order_advice), web.post("/settings/ai", ai_save),
+        web.post("/orders/{id:\\d+}/ai", order_ai), web.post("/orders/{id:\\d+}/advice", order_advice),
+        web.post("/orders/{id:\\d+}/rewrite", order_rewrite), web.post("/orders/{id:\\d+}/answer", order_answer), web.post("/settings/ai", ai_save),
         web.get("/deals", deals),
         web.get("/deals/new", deal_page), web.post("/deals/new", deal_page),
         web.get("/deals/{id:\\d+}", deal_page), web.post("/deals/{id:\\d+}", deal_page),

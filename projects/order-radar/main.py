@@ -102,20 +102,62 @@ async def poll_once(session: aiohttp.ClientSession, bot: Bot | None, tg_client=N
     return found
 
 
+def quiet_now(now: datetime | None = None) -> bool:
+    """Тихие часы: с quiet_from до quiet_to (через полночь тоже работает). Одинаковые значения — выключены."""
+    start, end = db.int_setting("quiet_from") % 24, db.int_setting("quiet_to") % 24
+    if start == end:
+        return False
+    hour = (now or datetime.now()).hour
+    return start <= hour < end if start < end else hour >= start or hour < end
+
+
+def _background(coro) -> None:
+    task = asyncio.create_task(coro)
+    _ai_tasks.add(task)
+    task.add_done_callback(_ai_tasks.discard)
+
+
 async def deliver(session: aiohttp.ClientSession, bot: Bot, order_id: int) -> None:
-    """Уведомление сразу (скорость важнее), разбор нейросетью — следом, правкой того же сообщения."""
+    """Обычно — уведомление сразу (скорость важнее), разбор нейросетью следом, правкой того же сообщения.
+    Тихие часы — молча копим, утром сводка. Фильтр «ИИ от N/10» — сначала разбор, в бот только подходящие."""
     o = db.get_order(order_id)
     if o["published_at"]:
         db.set_delay(order_id, int((sources.msk_now() - datetime.fromisoformat(o["published_at"])).total_seconds()))
+    if quiet_now():
+        queue = [x for x in (db.get_setting("quiet_queue") or "").split(",") if x]
+        db.set_setting("quiet_queue", ",".join(queue[-200:] + [str(order_id)]))
+        if ai.enabled():  # разберём заранее — к утру оценка будет готова
+            _background(analyze_only(session, order_id))
+        return
+    if ai.enabled() and db.int_setting("ai_min_score") > 0:
+        _background(analyze_then_notify(session, bot, order_id))  # не тормозим опрос бирж ожиданием нейросети
+        return
     try:
         message = await tg.notify(bot, order_id)
     except Exception:
         logging.exception("Не удалось отправить заказ #%s в Telegram", order_id)
         return
     if ai.enabled():
-        task = asyncio.create_task(analyze_and_update(session, bot, message, order_id))
-        _ai_tasks.add(task)
-        task.add_done_callback(_ai_tasks.discard)
+        _background(analyze_and_update(session, bot, message, order_id))
+
+
+async def analyze_only(session: aiohttp.ClientSession, order_id: int) -> None:
+    async with _ai_limit:
+        await ai.safe_analyze(session, db.get_order(order_id))
+
+
+async def analyze_then_notify(session: aiohttp.ClientSession, bot: Bot, order_id: int) -> None:
+    """Фильтр по оценке ИИ: присылаем, только если оценка не ниже порога. Нейросеть не ответила — присылаем всё равно."""
+    async with _ai_limit:
+        result = await ai.safe_analyze(session, db.get_order(order_id))
+    minimum = db.int_setting("ai_min_score")
+    if result and sources.ten(result["ai_score"]) < minimum:
+        logging.info("Заказ #%s: ИИ %s/10 ниже порога %s — не присылаю", order_id, sources.ten(result["ai_score"]), minimum)
+        return
+    try:
+        await tg.notify(bot, order_id)
+    except Exception:
+        logging.exception("Не удалось отправить заказ #%s в Telegram", order_id)
 
 
 async def analyze_and_update(session: aiohttp.ClientSession, bot: Bot, message, order_id: int) -> None:
@@ -132,11 +174,23 @@ async def daily_messages(bot: Bot) -> None:
     """Утром — напоминание о дедлайнах, вечером — сводка. Каждое — не больше раза в день."""
     now, today = datetime.now(), date.today().isoformat()
     jobs = [("last_reminder", REMINDER_HOUR, tg.reminder_text), ("last_digest", DIGEST_HOUR, tg.digest_text)]
+    if quiet_now(now):  # ночью ничего не шлём — ни сводок, ни напоминаний
+        return
     for key, hour, make_text in jobs:
         if now.hour >= hour and db.get_setting(key) != today:
             db.set_setting(key, today)
             if text := make_text():
                 await bot.send_message(ADMIN_ID, text, disable_web_page_preview=True)
+    # Тихие часы закончились — сводка того, что пришло ночью
+    if queue := [int(x) for x in (db.get_setting("quiet_queue") or "").split(",") if x.isdigit()]:
+        db.set_setting("quiet_queue", "")
+        if text := tg.quiet_summary_text(queue):
+            await bot.send_message(ADMIN_ID, text, disable_web_page_preview=True)
+    # «Заказчик ответил?» — через nudge_hours часов после отклика
+    for deal in db.nudge_due():
+        db.set_nudged(deal["id"])
+        await bot.send_message(ADMIN_ID, tg.nudge_text(deal), reply_markup=tg.nudge_kb(deal["id"]),
+                               disable_web_page_preview=True)
 
 
 async def poll_forever(bot: Bot | None) -> None:

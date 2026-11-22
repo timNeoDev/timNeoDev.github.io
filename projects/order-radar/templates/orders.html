@@ -31,6 +31,7 @@
       <span class="badge chance-{{ chance_label(ch) }}" title="Шанс {{ ten(ch) }} из 10: свежесть, число откликов, бюджет">шанс: {{ chance_label(ch) }}</span>
       {% if hot %}<span class="badge hot">🔥 горячий</span>{% endif %}
       {% if o.ai_score is not none %}<span class="badge ai" title="Оценка нейросети: насколько заказ вам подходит">🤖 {{ ten(o.ai_score) }}/10</span>{% endif %}
+      {% set flags = scam_flags(o) %}{% if flags %}<span class="badge warn" title="Слова-маркеры подвоха: {{ flags | join(', ') }}">⚠️ {{ flags[0] }}{% if flags | length > 1 %} +{{ flags | length - 1 }}{% endif %}</span>{% endif %}
       {% if view == "all" and not o.matched %}<span class="badge">не подходит под фильтры</span>{% endif %}
       {% if view == "all" and o.matched %}<span class="badge">{{ ORDER_STATUSES[o.status] }}</span>{% endif %}
       <a class="order-title" href="/orders/{{ o.id }}">{{ o.title }}</a>

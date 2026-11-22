@@ -96,6 +96,12 @@ def field(o, key: str):
     return o[key] if key in o.keys() else None
 
 
+def scam_flags(o, words: list[str]) -> list[str]:
+    """Слова-маркеры подвоха, найденные в названии и описании заказа (без учёта регистра и ё)."""
+    text = normalize(f"{field(o, 'title') or ''} {field(o, 'description') or ''}")
+    return [w for w in words if normalize(w) in text]
+
+
 def ten(score) -> int:
     """Оценка 0–100 (так она хранится и считается) → баллы из 10 для показа."""
     return max(0, min(10, round((score or 0) / 10)))
