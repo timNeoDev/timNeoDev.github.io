@@ -7,8 +7,11 @@ from html import unescape
 
 import aiohttp
 
-from config import (HIRING_WORDS, HOT_MAX_AGE_MIN, HOT_MAX_OFFERS, KWORK_PAGES, KWORK_URL, TG_KEYWORD_ZONE,
-                    TG_MAX_AGE_DAYS)
+import xml.etree.ElementTree as ET
+from email.utils import parsedate_to_datetime
+
+from config import (FL_FEEDS, HIRING_WORDS, HOT_MAX_AGE_MIN, HOT_MAX_OFFERS, KWORK_PAGES, KWORK_URL,
+                    TG_KEYWORD_ZONE, TG_MAX_AGE_DAYS)
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
@@ -73,8 +76,8 @@ def chance(o, now: datetime) -> int:
     """Шанс получить заказ, 0–100: меньше откликов и свежее — выше; нормальный бюджет — плюс.
     shortcut: веса подобраны на глаз; когда наберётся статистика выигранных сделок, подобрать по ней."""
     age_h = (now - datetime.fromisoformat(o["published_at"])).total_seconds() / 3600 if o["published_at"] else 24
-    # в Telegram число откликов неизвестно — считаем, что конкуренция средняя, а не нулевая
-    offers_penalty = 20 if o["source"].startswith("TG ") else min((o["offers"] or 0) * 2, 50)
+    # в Telegram и FL.ru число откликов неизвестно — считаем, что конкуренция средняя, а не нулевая
+    offers_penalty = 20 if o["source"].startswith(UNKNOWN_OFFERS) else min((o["offers"] or 0) * 2, 50)
     score = 100 - offers_penalty - min(int(max(age_h, 0) * 5), 30)
     if o["budget"] >= 5000:
         score += 10
@@ -153,7 +156,45 @@ async def fetch_kwork(session: aiohttp.ClientSession, pages: int = KWORK_PAGES) 
     return orders
 
 
-SOURCES = [("Kwork", fetch_kwork)]
+# ---------- FL.ru (RSS) ----------
+
+def parse_fl_rss(xml_text: str) -> list[dict]:
+    orders = []
+    for item in ET.fromstring(xml_text).iter("item"):
+        link, title = (item.findtext("link") or "").strip(), (item.findtext("title") or "").strip()
+        if not link or not title:
+            continue
+        description = unescape(re.sub(r"<[^>]+>", "", item.findtext("description") or "")).strip()
+        try:
+            published = parsedate_to_datetime(item.findtext("pubDate") or "")
+            published_at = (published.astimezone(timezone.utc) + timedelta(hours=3)).replace(tzinfo=None).isoformat()
+        except (TypeError, ValueError):
+            published_at = None
+        budget = extract_budget(f"{title} {description}")
+        orders.append({"source": "FL.ru", "link": link, "title": title, "description": description,
+                       "category": (item.findtext("category") or "").strip(), "budget": budget, "budget_max": budget,
+                       "views": 0, "offers": 0, "published_at": published_at})
+    return orders
+
+
+async def fetch_fl(session: aiohttp.ClientSession, pages: int = 1) -> list[dict]:
+    """Заказы FL.ru из RSS разделов «Программирование» и «Сайты». pages не используется: лента — одна страница."""
+    orders, seen = [], set()
+    for url in FL_FEEDS:
+        try:
+            async with session.get(url, headers=HEADERS, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                resp.raise_for_status()
+                for o in parse_fl_rss(await resp.text()):
+                    if o["link"] not in seen:  # один заказ бывает в обоих разделах
+                        seen.add(o["link"])
+                        orders.append(o)
+        except (aiohttp.ClientError, TimeoutError, ET.ParseError) as e:
+            logging.warning("FL.ru, %s: %s", url, e)
+    return orders
+
+
+SOURCES = [("Kwork", fetch_kwork), ("FL.ru", fetch_fl)]
+UNKNOWN_OFFERS = ("TG ", "FL.ru")  # у этих источников число откликов неизвестно
 
 
 # ---------- Telegram ----------

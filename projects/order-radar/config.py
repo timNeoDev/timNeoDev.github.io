@@ -22,6 +22,9 @@ BACKOFF_SECONDS = 120      # источник ответил ошибкой — 
 KWORK_URL = "https://kwork.ru/projects?c=11&page={page}"
 KWORK_PAGES = 3
 
+# FL.ru: официальные RSS-ленты разделов «Программирование» (5) и «Сайты» (2)
+FL_FEEDS = ["https://www.fl.ru/rss/all.xml?category=5", "https://www.fl.ru/rss/all.xml?category=2"]
+
 # Telegram: публичные каналы читаются через t.me/s без входа.
 # Чаты — через ваш аккаунт (Telethon): ключи с https://my.telegram.org → API development tools
 TG_API_ID = int(os.getenv("TG_API_ID", "0") or 0)

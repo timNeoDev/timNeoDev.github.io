@@ -29,7 +29,7 @@
           <button class="btn btn-sm btn-danger">Отключить аккаунт</button>
         </form>
       </div>
-    {% elif a.exchange != "Kwork" %}{# Kwork отдаёт заказы без входа #}
+    {% elif a.exchange == "Profi.ru" %}{# Kwork и FL.ru отдают заказы без входа #}
       <details>
         <summary class="btn btn-sm">Подключить аккаунт</summary>
         <form method="post" action="/accounts" class="stack" style="margin-top: 12px">

@@ -19,6 +19,13 @@ router.callback_query.filter(F.from_user.id == ADMIN_ID)
 ADMIN_URL = f"http://127.0.0.1:{WEB_PORT}"
 
 
+def shorten(text: str, limit: int) -> str:
+    """Обрезка по границе слова с подсказкой, где читать дальше (лимит сообщения Telegram — 4096 символов)."""
+    if len(text) <= limit:
+        return text
+    return text[:limit].rsplit(" ", 1)[0].rstrip(" ,.;:") + "… (полный текст — «Перейти к заказу»)"
+
+
 def format_order(o) -> str:
     now = sources.msk_now()
     hot = "🔥 " if sources.is_hot(o, now) else ""
@@ -28,7 +35,7 @@ def format_order(o) -> str:
         f"💰 {budget} · 👁 {o['views']} · 💬 откликов: {o['offers']}\n"
         f"🎯 шанс: {sources.chance_label(sources.chance(o, now))}\n"
         f"<i>{escape(o['source'])} · {escape(o['category'] or 'без категории')}</i>\n\n"
-        f"{escape((o['description'] or '')[:400])}\n\n"
+        f"{escape(shorten(o['description'] or '', 1500))}\n\n"
         f"🔑 {escape(o['matched'])}\n"
         f"<a href=\"{escape(o['link'])}\">Открыть заказ →</a>"
     )

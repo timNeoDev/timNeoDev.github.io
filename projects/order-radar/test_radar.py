@@ -53,7 +53,7 @@ db.DB_PATH = os.path.join(tempfile.mkdtemp(), "test.db")
 db.init_db()
 db.init_db()                                                        # повторный запуск не ломает базу
 assert "бот" in db.get_words("plus") and "дизайн" in db.get_words("minus")
-assert {a["exchange"]: a["enabled"] for a in db.list_accounts()} == {"Kwork": 1, "Profi.ru": 0}
+assert {a["exchange"]: a["enabled"] for a in db.list_accounts()} == {"Kwork": 1, "FL.ru": 1, "Profi.ru": 0}
 oid = db.upsert_order(o, ["бот"])
 assert oid and db.upsert_order({**o, "views": 99, "offers": 5}, ["бот"]) is None
 assert db.get_order(oid)["views"] == 99 and db.get_order(oid)["offers"] == 5
@@ -156,6 +156,18 @@ async def check_poll():
     assert db.get_order(db.list_orders("all", q="лол")[0]["id"])["matched"] == ""   # болтовня не заказ
 
 asyncio.run(check_poll())
+
+# --- FL.ru RSS и обрезка текста в уведомлении ---
+FL = """<?xml version="1.0" encoding="utf-8"?><rss><channel><item><title><![CDATA[Telegram-бот для магазина]]></title>
+<link>https://www.fl.ru/projects/1/bot.html</link><description><![CDATA[Нужен <b>бот</b>, бюджет 20 000 руб]]></description>
+<category>Программирование / Боты</category><pubDate>Sat, 22 Nov 2026 10:00:00 GMT</pubDate></item></channel></rss>"""
+fl = sources.parse_fl_rss(FL)[0]
+assert (fl["source"], fl["budget"], fl["published_at"]) == ("FL.ru", 20000, "2026-11-22T13:00:00")
+assert fl["description"] == "Нужен бот, бюджет 20 000 руб"
+import bot as _bot  # noqa: E402
+long = _bot.shorten("слово " * 500, 1500)
+assert len(long) < 1560 and long.endswith("«Перейти к заказу»)") and "слов…" not in long   # по границе слова
+assert _bot.shorten("коротко", 1500) == "коротко"
 
 # --- Telegram: вакансии, старые посты и слово глубоко в тексте не считаются заказами (примеры со скриншота) ---
 now_iso = sources.msk_now().isoformat()
