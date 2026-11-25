@@ -294,7 +294,8 @@ assert "digitaltender" in [s["username"] for s in db.list_tg_sources()]
 
 # --- смена фильтров перепроверяет «Новые» заказы ---
 rid = db.upsert_order({**p0, "link": "https://t.me/x/500", "title": "Монтажёр, пишите в telegram",
-                       "description": "Монтажёр, пишите в telegram"}, ["telegram"])
+                       "description": "Монтажёр, пишите в telegram",  # свежая дата: посты TG старше 3 дней отсекаются
+                       "published_at": sources.msk_now().replace(microsecond=0).isoformat()}, ["telegram"])
 db.add_word("plus", "telegram"); db.rematch_new_orders()
 assert db.get_order(rid)["matched"] == "telegram"
 db.delete_word("plus", "telegram"); db.rematch_new_orders()
