@@ -135,6 +135,80 @@ def _json_after(html: str, key: str):
     return json.JSONDecoder().raw_decode(html, i + len(key) + 3)[0]
 
 
+def _opt_int(value) -> int | None:
+    """Число из ответа биржи или None, если поля нет (0 и «нет данных» — разные вещи)."""
+    try:
+        return int(float(value)) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def client_verdict(o) -> tuple[str, str] | None:
+    """Короткий вывод о заказчике по данным биржи: (метка, пояснение). None — биржа о заказчике ничего не сообщает."""
+    total, hired = field(o, "client_orders"), field(o, "client_hired")
+    note = normalize(field(o, "client_note") or "")
+    if total is None:
+        if "нов" in note:
+            return "🆕 Новый заказчик", "Биржа отмечает его как нового — опыта найма у него, скорее всего, нет"
+        return None
+    if total <= 1:
+        return ("🆕 Новый заказчик",
+                "Это его первый заказ на бирже: истории нет. Обсудите задачу подробно и работайте по этапам/через безопасную сделку")
+    if hired is not None and hired >= 50:
+        return "✅ Проверенный заказчик", f"Разместил {total} заказов и выбрал исполнителя в {hired}% — обычно доводит до найма"
+    if hired is not None and hired < 25:
+        return ("⚠️ Редко нанимает",
+                f"Разместил {total} заказов, но выбрал исполнителя лишь в {hired}% — возможно, собирает цены")
+    return "👤 Есть история", f"Разместил {total} заказов" + (f", нанимал в {hired}%" if hired is not None else "")
+
+
+def fmt_duration(seconds: int | None) -> str:
+    """12 сек · 3 мин 5 сек · 2 ч 10 мин · 2 дн 4 ч"""
+    if seconds is None:
+        return ""
+    seconds = max(int(seconds), 0)
+    if seconds < 60:
+        return f"{seconds} сек"
+    if seconds < 3600:
+        return f"{seconds // 60} мин {seconds % 60} сек"
+    if seconds < 86400:
+        return f"{seconds // 3600} ч {seconds % 3600 // 60} мин"
+    return f"{seconds // 86400} дн {seconds % 86400 // 3600} ч"
+
+
+def time_left(o, now: datetime) -> int | None:
+    """Сколько секунд заказ ещё принимает отклики (None — биржа не сообщает)."""
+    expires = field(o, "expires_at")
+    return int((datetime.fromisoformat(expires) - now).total_seconds()) if expires else None
+
+
+def order_tips(o, response_price: int, now: datetime) -> list[str]:
+    """Подсказки перед откликом — только из фактов заказа, без нейросети."""
+    tips = []
+    age_min = (now - datetime.fromisoformat(o["published_at"])).total_seconds() / 60 if o["published_at"] else None
+    offers_known = not o["source"].startswith(UNKNOWN_OFFERS)
+    if offers_known and not o["offers"]:
+        tips.append("🥇 Откликов ещё нет — у первого отклика больше всего внимания заказчика, отвечайте сейчас.")
+    elif offers_known and o["offers"] >= 15:
+        tips.append(f"👥 Уже {o['offers']} откликов — выделяйтесь: в первой строке конкретный план, срок и цена.")
+    if age_min is not None and age_min <= 15:
+        tips.append(f"⏱ Опубликован {int(age_min)} мин назад — свежий, конкуренция ещё не набралась.")
+    elif age_min is not None and age_min > 72 * 60:
+        tips.append("🕰 Заказу больше трёх дней — возможно, исполнителя уже выбрали. Отклик может уйти впустую.")
+    if not o["budget"]:
+        tips.append("💬 Бюджет не указан — назовите вилку и уточните объём, прежде чем называть точную цену.")
+    elif o["budget_max"] > o["budget"]:
+        tips.append(f"📈 Заказчик готов поднять бюджет до {o['budget_max']:,} ₽ — можно предложить расширенный вариант."
+                    .replace(",", " "))
+    if response_price and o["budget"]:
+        share = response_price * 100 / o["budget"]
+        if share >= 5:
+            tips.append(f"💸 Отклик стоит {response_price} ₽ — это {share:.0f}% бюджета. Откликайтесь, только если заказ точно ваш.")
+    if (left := time_left(o, now)) is not None and 0 < left < 6 * 3600:
+        tips.append(f"⌛ Приём откликов закроется через {fmt_duration(left)}.")
+    return tips
+
+
 def parse_kwork(html: str) -> list[dict]:
     categories = dict(re.findall(r'"CATID":"(\d+)","id":"\d+","name":"([^"]+)"', html))
     orders = []
@@ -142,7 +216,15 @@ def parse_kwork(html: str) -> list[dict]:
         try:
             budget = int(float(w.get("priceLimit") or 0))
             budget_max = int(float(w.get("possiblePriceLimit") or 0))
+            user = w.get("user") if isinstance(w.get("user"), dict) else {}
+            stats = user.get("data") if isinstance(user.get("data"), dict) else {}
             orders.append({
+                "client_name": str(user.get("username") or "") or None,
+                "client_url": w.get("wantUserGetProfileUrl") or None,
+                "client_orders": _opt_int(stats.get("wants_count")),
+                "client_hired": _opt_int(stats.get("wants_hired_percent")),
+                "term_days": str(w.get("max_days") or "") or None,
+                "expires_at": datetime.fromisoformat(w["date_expire"]).isoformat() if w.get("date_expire") else None,
                 "source": "Kwork",
                 "link": f"https://kwork.ru/projects/{int(w['id'])}",
                 "title": str(w.get("name") or "").strip(),

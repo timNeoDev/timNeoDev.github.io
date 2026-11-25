@@ -1,7 +1,7 @@
 """Telegram-бот радара: уведомления о заказах, отклики, фильтры, напоминания. Отвечает только владельцу."""
 import logging
 import time
-from datetime import date
+from datetime import date, datetime
 from html import escape
 
 import aiohttp
@@ -31,63 +31,85 @@ def shorten(text: str, limit: int) -> str:
     return text[:limit].rsplit(" ", 1)[0].rstrip(" ,.;:") + "… (полностью — на странице заказа)"
 
 
-def fmt_delay(seconds: int | None) -> str:
-    if seconds is None:
-        return ""
-    if seconds < 60:
-        return f"{seconds} сек"
-    if seconds < 3600:
-        return f"{seconds // 60} мин {seconds % 60} сек"
-    return f"{seconds // 3600} ч {seconds % 3600 // 60} мин"
+fmt_delay = sources.fmt_duration  # «1 мин 15 сек»
+
+# Цвета кнопок Telegram (Bot API 9.4+): синяя — главное действие, зелёная — «готово», красная — убрать.
+# Старые клиенты Telegram просто покажут обычные кнопки.
+BLUE, GREEN, RED = "primary", "success", "danger"
 
 
 def format_order(o) -> str:
     now = sources.msk_now()
     score = sources.chance(o, now)
+    views, offers = sources.counts(o)
+    head = f"🔥 <b>ГОРЯЧИЙ</b> · {escape(o['source'])}" if sources.is_hot(o, now) else f"📥 <b>{escape(o['source'])}</b>"
+    if o["category"]:
+        head += f" · {escape(o['category'][:60])}"
+    lines = [head, "", f"<b>{escape(o['title'])}</b>", ""]
+
     budget = f"<b>{rub(o['budget'])}</b>" if o["budget"] else "<b>договорная</b>"
     if o["budget_max"] > o["budget"]:
-        budget += f" · до {rub(o['budget_max'])}"
-    views, offers = sources.counts(o)
-    lines = []
-    if sources.is_hot(o, now):
-        lines.append("🔥 <b>ГОРЯЧИЙ ЗАКАЗ</b>")
-    lines += [
-        f"<b>{escape(o['title'])}</b>",
-        "",
-        f"💰 {budget}",
-        f"📍 {escape(o['source'])}" + (f" · {escape(o['category'])}" if o["category"] else ""),
-        f"👁 {views}   💬 откликов: {offers}   🎯 шанс: <b>{sources.chance_label(score)}</b> ({sources.ten(score)}/10)",
-    ]
+        budget += f" · можно до {rub(o['budget_max'])}"
+    lines.append(f"💰 {budget}")
+    marks = f"🎯 шанс: <b>{sources.chance_label(score)}</b> ({sources.ten(score)}/10)"
+    if sources.field(o, "ai_score") is not None:
+        marks += f"  ·  🤖 ИИ: <b>{sources.ten(o['ai_score'])}/10</b>"
+    lines.append(marks)
+    lines.append(f"👥 откликов: <b>{offers}</b>  ·  👁 {views}")
+    timing = []
     if (delay := sources.field(o, "delay_sec")) is not None:
-        lines.append(f"⚡ дошёл за <b>{fmt_delay(delay)}</b> после публикации")
+        timing.append(f"⚡ дошёл за <b>{fmt_delay(delay)}</b>")
+    if o["published_at"]:
+        age = int((now - datetime.fromisoformat(o["published_at"])).total_seconds())
+        timing.append(f"опубликован {fmt_delay(age)} назад")
+    if timing:
+        lines.append("  ·  ".join(timing))
+
+    extra = []
+    if verdict := sources.client_verdict(o):
+        name = sources.field(o, "client_name")
+        extra.append(f"👤 {escape(name) + ' — ' if name else ''}{verdict[0]}: {escape(verdict[1])}")
+    elif name := sources.field(o, "client_name"):
+        extra.append(f"👤 {escape(name)}")
+    acc = db.get_account(o["source"])
+    if acc and acc["response_price"]:
+        extra.append(f"💸 отклик стоит {rub(acc['response_price'])}")
+    if term := sources.field(o, "term_days"):
+        extra.append(f"⏳ срок по заказу: {escape(term)} дн.")
+    if (left := sources.time_left(o, now)) is not None and left > 0:
+        extra.append(f"⌛ приём откликов: ещё {fmt_delay(left)}")
     if flags := sources.scam_flags(o, db.scam_words()):
-        lines.append(f"⚠️ <b>Осторожно:</b> {escape(', '.join(f'«{w}»' for w in flags))}")
+        extra.append(f"⚠️ <b>Осторожно:</b> {escape(', '.join(f'«{w}»' for w in flags))}")
+    if extra:
+        lines += [""] + extra
+
     if o["description"]:
         lines += ["", f"<blockquote expandable>{escape(shorten(o['description'], 2500))}</blockquote>"]
     if sources.field(o, "ai_score") is not None:
-        lines += ["", f"🤖 <b>ИИ: {sources.ten(o['ai_score'])}/10</b> — {escape(o['ai_summary'] or '')}"]
+        lines += ["", f"🤖 <b>Разбор ИИ:</b> {escape(o['ai_summary'] or '')}"]
         if o["ai_price"] or o["ai_days"]:
             lines.append(f"💵 {escape(o['ai_price'] or '—')}   ⏳ {escape(o['ai_days'] or '—')}")
         if o["ai_risks"]:
             lines.append(f"⚠️ {escape(o['ai_risks'])}")
-    lines += ["", f"🔑 <i>{escape(o['matched'].replace(',', ', '))}</i>"]
+    lines += ["", f"🔑 <i>{escape(o['matched'].replace(',', ', '))}</i>",
+              f"📋 подробная карточка: {ADMIN_URL}/orders/{o['id']}"]  # текстом: на localhost Telegram ссылки не делает
     return "\n".join(lines)
 
 
 def order_kb(o):
     kb = InlineKeyboardBuilder()
-    kb.button(text="🔗 Перейти к заказу", url=o["link"])
+    kb.button(text="🔗 Перейти к заказу", url=o["link"], style=BLUE)
     if o["status"] == "new":
-        kb.button(text="✔ Я откликнулся", callback_data=f"resp:{o['id']}")
+        kb.button(text="✔ Я откликнулся", callback_data=f"resp:{o['id']}", style=GREEN)
     else:
         kb.button(text=f"{db.ORDER_STATUSES[o['status']]} · вернуть", callback_data=f"st:{o['id']}:new")
-    kb.button(text="✍️ Отклик от ИИ", callback_data=f"ai:{o['id']}")
+    kb.button(text="✍️ Отклик от ИИ", callback_data=f"ai:{o['id']}", style=BLUE)
     kb.button(text="💡 Совет ИИ", callback_data=f"adv:{o['id']}")
     kb.button(text="💬 Ответ заказчику", callback_data=f"ask:{o['id']}")
     kb.button(text="📝 Шаблоны", callback_data="tpl")
     kb.button(text="🔄 Обновить цифры", callback_data=f"upd:{o['id']}")
     if o["status"] == "new":
-        kb.button(text="🙈 Скрыть", callback_data=f"st:{o['id']}:hidden")
+        kb.button(text="🙈 Скрыть", callback_data=f"st:{o['id']}:hidden", style=RED)
     kb.adjust(2, 2, 2, 2)
     return kb.as_markup()
 
@@ -158,9 +180,9 @@ def nudge_text(deal) -> str:
 
 def nudge_kb(deal_id: int):
     kb = InlineKeyboardBuilder()
-    kb.button(text="💬 Заказчик ответил", callback_data=f"ng:{deal_id}:dialog")
-    kb.button(text="✔ Напомнил", callback_data=f"ng:{deal_id}:ok")
-    kb.button(text="✖ Отказ", callback_data=f"ng:{deal_id}:lost")
+    kb.button(text="💬 Заказчик ответил", callback_data=f"ng:{deal_id}:dialog", style=GREEN)
+    kb.button(text="✔ Напомнил", callback_data=f"ng:{deal_id}:ok", style=BLUE)
+    kb.button(text="✖ Отказ", callback_data=f"ng:{deal_id}:lost", style=RED)
     kb.adjust(1, 2)
     return kb.as_markup()
 

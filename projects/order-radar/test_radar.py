@@ -19,7 +19,9 @@ assert sources.clean_word("  Телеграм   Бот ") == "телеграм �
 HTML = ('<script>window.x={"cats":[{"CATID":"41","id":"41","name":"Скрипты, боты и mini apps"}],'
         '"wants":[{"id":"777","name":"Бот для записи","description":"Нужен <b>бот</b> [срочно] &mdash; сегодня",'
         '"priceLimit":"5000.00","possiblePriceLimit":15000,"views_dirty":"42","kwork_count":2,'
-        '"date_create":"2025-01-01 10:00:00","date_active":"2026-11-19 21:42:40","category_id":"41"},'
+        '"date_create":"2025-01-01 10:00:00","date_active":"2026-11-19 21:42:40","category_id":"41",'
+        '"user":{"USERID":1,"username":"ivan_k","data":{"wants_count":"5","wants_hired_percent":"80"}},'
+        '"wantUserGetProfileUrl":"https://kwork.ru/user/ivan_k","max_days":"3","date_expire":"2026-11-22 21:00:00"},'
         '{"id":"bad"}]}</script>')
 orders = sources.parse_kwork(HTML)
 assert len(orders) == 1                                            # битый заказ пропущен, а не роняет разбор
@@ -28,6 +30,22 @@ assert o["link"] == "https://kwork.ru/projects/777" and o["category"] == "Скр
 assert (o["budget"], o["budget_max"], o["views"], o["offers"]) == (5000, 15000, 42, 2)
 assert o["description"] == "Нужен бот [срочно] — сегодня"          # теги и &mdash; убраны, скобки не ломают JSON
 assert o["published_at"] == "2026-11-19T21:42:40"                  # дата последней публикации, а не создания
+assert (o["client_name"], o["client_url"], o["client_orders"], o["client_hired"]) == (
+    "ivan_k", "https://kwork.ru/user/ivan_k", 5, 80)                # заказчик: сколько заказов и как часто нанимает
+assert (o["term_days"], o["expires_at"]) == ("3", "2026-11-22T21:00:00")
+
+# --- вывод о заказчике и подсказки перед откликом ---
+assert sources.client_verdict(o)[0] == "✅ Проверенный заказчик"
+assert sources.client_verdict({**o, "client_orders": 1})[0] == "🆕 Новый заказчик"
+assert sources.client_verdict({**o, "client_orders": 8, "client_hired": 10})[0] == "⚠️ Редко нанимает"
+assert sources.client_verdict({**o, "client_orders": None, "client_hired": None}) is None   # биржа не сообщает
+assert sources.client_verdict({**o, "client_orders": None, "client_note": "Новый клиент"})[0] == "🆕 Новый заказчик"
+_now = datetime(2026, 11, 22, 18, 0)
+_fresh = {**o, "published_at": "2026-11-22T17:55:00", "offers": 0, "budget": 1000, "budget_max": 1000}
+_tips = " ".join(sources.order_tips(_fresh, 100, _now))
+assert "Откликов ещё нет" in _tips and "5 мин назад" in _tips and "10% бюджета" in _tips and "закроется через 3 ч" in _tips
+assert not any("бюджета" in t for t in sources.order_tips(_fresh, 10, _now))   # 1% бюджета — не тревожим
+assert sources.fmt_duration(65) == "1 мин 5 сек" and sources.fmt_duration(90000) == "1 дн 1 ч"
 
 # --- FL.ru: свежая лента fl.ru/projects (RSS кешируется до часа) ---
 FL_HTML = ('<div class="x" id="project-item111"><h2><a id="prj_name_111" class="a" href="/projects/111/bot.html">Telegram-бот '
@@ -97,8 +115,9 @@ import base64, json as _json, profi  # noqa: E401,E402
 snippet = {"id": "96314683", "type": "SNIPPET", "title": "Создание сайтов",
            "description": "Корпоративный сайт · Контент есть · Нужен сайт для МФО", "lastUpdateDate": 1795373305,
            "price": {"prefix": "до", "value": "45 000 ₽"}, "geo": {"remote": {"prefix": "Дистанционно · Москва"}},
-           "badges": [{"label": "Топ-заказ"}]}
-feed = {"data": {"boSearchBoardItems": {"items": [
+           "badges": [{"label": "Топ-заказ"}], "clientInfo": {"name": "Анна"}, "clientTags": [{"value": "Новый клиент"}],
+           "secondPrice": {"prefix": "", "value": "120 ₽", "suffix": "за отклик"}}
+feed ={"data": {"boSearchBoardItems": {"items": [
     {"id": "DIVIDER", "type": "DIVIDER"}, snippet,
     {"id": "CAROUSEL", "type": "CAROUSEL", "snippets": [{**snippet, "id": "96207094", "price": None}, snippet]},
     {"id": "STORIES", "type": "STORIES"}]}}}
@@ -111,6 +130,9 @@ assert p["description"] == "Корпоративный сайт\nКонтент 
 assert p["category"] == "Дистанционно · Москва · Топ-заказ"
 assert p["published_at"] == "2026-11-22T21:48:25"                                     # unix → московское время
 assert p_orders[1]["budget"] == 0
+assert (p["client_name"], p["client_note"]) == ("Анна", "Новый клиент")
+assert p["price_note"] == f"до {snippet['price']['value']} · 120 ₽ за отклик"                # цены как пишет Profi
+assert p_orders[1]["price_note"] == "120 ₽ за отклик"
 assert profi.parse_feed({"errors": [{"message": "x"}]}) == []
 jwt = "h." + base64.urlsafe_b64encode(_json.dumps({"exp": 1000}).encode()).decode().rstrip("=") + ".s"
 pairs = profi.parse_cookie(f"cookie: a=1; prfr_bo_tkn={jwt}; b=x=y")
@@ -164,6 +186,12 @@ assert oid and db.upsert_order({**o, "views": 99, "offers": 5}, ["бот"]) is N
 db.upsert_order({**o, "views": 0, "offers": 0}, ["бот"])                             # источник не отдал цифры
 assert (db.get_order(oid)["views"], db.get_order(oid)["offers"]) == (99, 5)           # нулями не затёрто
 assert db.get_order(oid)["views"] == 99 and db.get_order(oid)["offers"] == 5
+assert db.get_order(oid)["client_hired"] == 80
+db.upsert_order({**o, "client_hired": 90, "client_name": None}, ["бот"])            # свежие данные о заказчике
+assert (db.get_order(oid)["client_hired"], db.get_order(oid)["client_name"]) == (90, "ivan_k")  # пустое не затирает
+db.upsert_order({**o, "client_hired": 80}, ["бот"])
+db.upsert_order({**o, "link": "https://kwork.ru/projects/778"}, ["бот"])           # второй заказ того же заказчика
+assert db.client_history(db.get_order(oid)) == {"seen": 1, "deals": 0, "paid": 0}
 
 # --- аккаунты бирж: цена отклика, подключение, отключение ---
 db.set_response_price("Kwork", 50)
@@ -366,7 +394,10 @@ except ai.AIError:
 db.save_ai(oid, {**parsed, "ai_hot": 1})
 db.set_delay(oid, 17)
 text = bot.format_order(db.get_order(oid))
-assert "🤖 <b>ИИ: 9/10</b>" in text and "дошёл за <b>17 сек</b>" in text and "<blockquote expandable>" in text
+assert "🤖 ИИ: <b>9/10</b>" in text and "дошёл за <b>17 сек</b>" in text and "<blockquote expandable>" in text
+assert "👤 ivan_k — ✅ Проверенный заказчик" in text and "💸 отклик стоит" in text and f"/orders/{oid}" in text
+_styles = {b.callback_data or b.url: b.style for row in bot.order_kb(db.get_order(oid)).inline_keyboard for b in row}
+assert _styles[db.get_order(oid)["link"]] == "primary" and _styles[f"ai:{oid}"] == "primary"   # цветные кнопки
 assert "ГОРЯЧИЙ" in text or db.get_order(oid)["published_at"] < (sources.msk_now() - timedelta(days=1)).isoformat()
 assert any(b.callback_data == f"ai:{oid}" for row in bot.order_kb(db.get_order(oid)).inline_keyboard for b in row)
 assert bot.fmt_delay(75) == "1 мин 15 сек" and 0 <= db.avg_delay() <= 17   # в опросе выше тоже засечена доставка
@@ -454,7 +485,9 @@ async def check_web():
         page = await (await client.get("/orders")).text()
         assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page and "<script>alert(1)" not in page
         page = await (await client.get(f"/orders/{oid}")).text()
-        assert "Откликнуться на бирже" in page and "Копировать" in page                     # страница заказа
+        assert "Откликнуться на Kwork" in page and "Копировать ссылку" in page             # страница заказа
+        assert "Цена отклика" in page and "Дошёл до вас за" in page and "Заказчик" in page   # подробная карточка
+        assert "Проверенный заказчик" in page and "в 80% заказов" in page                  # данные о заказчике Kwork
         assert "🤖 Разбор нейросетью" in page and "Здравствуйте!" in page                  # разбор ИИ на странице
         assert "🤖 9/10" in await (await client.get("/orders?view=all")).text()
         db.set_setting("ai_key", "test-key-123")

@@ -295,7 +295,13 @@ def parse_feed(data: dict) -> list[dict]:
                      if isinstance(ts, (int, float)) else None)  # время московское, как у остальных бирж
         remote = ((s.get("geo") or {}).get("remote") or {}).get("prefix") or ""
         badges = ", ".join(b["label"] for b in s.get("badges") or [] if b.get("label"))
+        client = s.get("clientInfo") if isinstance(s.get("clientInfo"), dict) else {}
+        tags = ", ".join(str(t.get("value")) for t in s.get("clientTags") or [] if isinstance(t, dict) and t.get("value"))
+        prices = [" ".join(str(p.get(k) or "") for k in ("prefix", "value", "suffix")).strip()
+                  for p in (s.get("price"), s.get("secondPrice")) if isinstance(p, dict)]
         orders.append({
+            "client_name": str(client.get("name") or "").strip() or None, "client_note": tags or None,
+            "price_note": " · ".join(p for p in prices if p) or None,  # цены так, как их пишет Profi
             "source": EXCHANGE, "link": ORDER_URL.format(id=oid),
             "title": str(s.get("title") or "").strip(),
             "description": str(s.get("description") or "").replace(" · ", "\n").strip(),

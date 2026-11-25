@@ -1,7 +1,7 @@
-// Копирование шаблона отклика в буфер обмена
-document.querySelectorAll('[data-copy]').forEach(btn => {
+// Копирование в буфер обмена: data-copy="id блока" — его текст, data-copy-text="..." — готовый текст (ссылка)
+document.querySelectorAll('[data-copy], [data-copy-text]').forEach(btn => {
   btn.addEventListener('click', async () => {
-    const text = document.getElementById(btn.dataset.copy).innerText;
+    const text = btn.dataset.copyText ?? document.getElementById(btn.dataset.copy).innerText;
     try {
       await navigator.clipboard.writeText(text);
       const old = btn.textContent;

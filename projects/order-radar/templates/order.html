@@ -4,31 +4,48 @@
 <div class="page-head">
   <div>
     <p><a href="/orders" class="muted small">← Все заказы</a></p>
+    <p class="order-src">{{ o.source }}{% if o.category %} · {{ o.category }}{% endif %}</p>
     <h1>{{ o.title }}</h1>
-    <div class="row" style="margin-top: 8px">
-      <span class="badge chance-{{ chance_label }}" title="Шанс {{ ten(score) }} из 10: свежесть, число откликов, бюджет">шанс: {{ chance_label }}</span>
+    <div class="row" style="margin-top: 10px">
       {% if hot %}<span class="badge hot">🔥 горячий</span>{% endif %}
       <span class="badge">{{ ORDER_STATUSES[o.status] }}</span>
+      {% if verdict %}<span class="badge {{ 'warn' if verdict[0].startswith(('🆕', '⚠️')) else 'stage-done' }}">{{ verdict[0] }}</span>{% endif %}
       {% for w in o.matched.split(",") if w %}<span class="badge kw">{{ w }}</span>{% endfor %}
       {% for w in scam_flags(o) %}<span class="badge warn" title="Слово-маркер подвоха — проверьте условия">⚠️ {{ w }}</span>{% endfor %}
     </div>
   </div>
+  <div class="row">
+    <a class="btn btn-primary" href="{{ o.link }}" target="_blank" rel="noopener">Откликнуться на {{ o.source }} ↗</a>
+    <button type="button" class="btn" data-copy-text="{{ o.link }}">Копировать ссылку</button>
+  </div>
+</div>
+
+{% set cv = counts(o) %}
+<div class="kpis order-facts">
+  <div class="kpi"><span>Бюджет</span>
+    <b class="{{ 'price' if o.budget }}">{{ o.budget | rub if o.budget else "договорная" }}</b>
+    <small>{% if o.budget_max > o.budget %}можно до {{ o.budget_max | rub }}{% elif o.price_note %}{{ o.price_note }}{% else %}как указал заказчик{% endif %}</small></div>
+  <div class="kpi"><span>Цена отклика</span>
+    <b>{% if response_price %}{{ response_price | rub }}{% else %}—{% endif %}</b>
+    <small>{% if response_price %}из настроек биржи{% elif has_account %}<a href="/settings#accounts">указать в настройках</a>{% else %}биржа не подключена{% endif %}</small></div>
+  <div class="kpi {{ 'accent' if o.ai_score is not none and ten(o.ai_score) >= 7 }}"><span>Оценка ИИ</span>
+    <b>{% if o.ai_score is not none %}{{ ten(o.ai_score) }}<i class="of">/10</i>{% else %}—{% endif %}</b>
+    <small>{% if o.ai_hot %}брать сейчас{% elif o.ai_score is not none %}подходит ли вам заказ{% else %}<a href="#ai">ещё не разобран</a>{% endif %}</small></div>
+  <div class="kpi"><span>Шанс получить</span>
+    <b>{{ ten(score) }}<i class="of">/10</i></b><small>{{ chance_label }} · свежесть, отклики, бюджет</small></div>
+  <div class="kpi"><span>Конкуренция</span>
+    <b>{{ cv[1] }}</b><small>{{ "откликов" if cv[1] != "?" else "биржа не сообщает" }} · 👁 {{ cv[0] }}</small></div>
+  <div class="kpi"><span>Дошёл до вас за</span>
+    <b>{% if o.delay_sec is not none %}{{ o.delay_sec | dur }}{% else %}—{% endif %}</b>
+    <small>{% if o.published_at %}опубликован {{ o.published_at | ago }}{% else %}время публикации неизвестно{% endif %}</small></div>
 </div>
 
 <div class="grid grid-2" style="align-items: start">
+  <div class="stack">
   <section class="card stack">
-    <div class="order-meta">
-      <span class="price">{{ o.budget | rub }}{% if o.budget_max > o.budget %} – {{ o.budget_max | rub }}{% endif %}</span>
-      {% set cv = counts(o) %}<span title="{{ 'Биржа не сообщает' if cv[0] == '?' else 'Просмотры заказа' }}">👁 <b>{{ cv[0] }}</b> просмотров</span>
-      <span title="{{ 'Биржа не сообщает' if cv[1] == '?' else 'Откликов на заказ' }}">💬 <b>{{ cv[1] }}</b> откликов</span>
-      <span>{{ o.source }} · {{ o.category or "без категории" }}</span>
-      <span>{{ o.published_at | ago }}</span>
-      {% if o.delay_sec is not none %}<span>⚡ дошёл до вас за {{ o.delay_sec }} сек</span>{% endif %}
-    </div>
+    <h2>Описание заказа</h2>
     <div class="tpl-body">{{ o.description or "Описания нет — откройте заказ на бирже." }}</div>
-
     <div class="row">
-      <a class="btn btn-primary" href="{{ o.link }}" target="_blank" rel="noopener">🔗 Откликнуться на бирже ↗</a>
       {% if o.status == "new" %}
         <form method="post" action="/orders/{{ o.id }}/respond" data-confirm="Отклик на бирже уже отправлен? Будет создана сделка и засчитан отклик.">
           <button class="btn">✔ Я откликнулся</button></form>
@@ -38,9 +55,51 @@
         <form method="post" action="/orders/{{ o.id }}/respond"><button class="btn btn-ghost">🤝 Открыть сделку</button></form>
       {% endif %}
     </div>
-    <p class="muted small">«Откликнуться на бирже» открывает заказ в новой вкладке — отклик пишется там, под вашим аккаунтом.
-      Когда отправите, нажмите «Я откликнулся»: тогда появится сделка и отклик попадёт в статистику.</p>
+    <p class="muted small">Отклик пишется на бирже, под вашим аккаунтом. Когда отправите — нажмите «Я откликнулся»:
+      появится сделка, а отклик попадёт в статистику.</p>
   </section>
+
+  {% if tips %}
+  <section class="card stack">
+    <h2>Перед откликом</h2>
+    <ul class="tips">{% for t in tips %}<li>{{ t }}</li>{% endfor %}</ul>
+  </section>
+  {% endif %}
+
+  <section class="card stack">
+    <h2>Заказчик</h2>
+    {% if o.client_name or verdict %}
+      <div class="row">
+        <b class="client-name">{{ o.client_name or "Имя скрыто" }}</b>
+        {% if o.client_url %}<a class="btn btn-sm" href="{{ o.client_url }}" target="_blank" rel="noopener">Профиль ↗</a>{% endif %}
+      </div>
+      {% if verdict %}<p><b>{{ verdict[0] }}</b> — {{ verdict[1] }}.</p>{% endif %}
+      <dl class="facts">
+        {% if o.client_orders is not none %}<dt>Заказов на бирже</dt><dd>{{ o.client_orders }}</dd>{% endif %}
+        {% if o.client_hired is not none %}<dt>Выбирает исполнителя</dt><dd>в {{ o.client_hired }}% заказов</dd>{% endif %}
+        {% if o.client_note %}<dt>Отметки биржи</dt><dd>{{ o.client_note }}</dd>{% endif %}
+        {% if history.seen %}<dt>Радар видел ещё</dt><dd>{{ history.seen }} его заказ(ов)</dd>{% endif %}
+        {% if history.deals %}<dt>Ваши сделки с ним</dt><dd>{{ history.deals }}{% if history.paid %}, оплачено {{ history.paid }}{% endif %}</dd>{% endif %}
+      </dl>
+    {% else %}
+      <p class="muted">{{ o.source }} не показывает в ленте, кто заказчик. Откройте заказ на бирже: там видно профиль,
+        дату регистрации и отзывы. Новичок без отзывов — повод работать по предоплате или через безопасную сделку.</p>
+    {% endif %}
+  </section>
+
+  <section class="card stack">
+    <h2>Условия</h2>
+    <dl class="facts">
+      <dt>Откуда</dt><dd>{{ o.source }}{% if o.category %} · {{ o.category }}{% endif %}</dd>
+      <dt>Опубликован</dt><dd>{{ o.published_at.replace("T", " ")[:16] if o.published_at else "неизвестно" }}{% if o.published_at %} · {{ o.published_at | ago }}{% endif %}</dd>
+      <dt>Радар нашёл</dt><dd>{{ o.created_at[:16] }}{% if o.delay_sec is not none %} · через {{ o.delay_sec | dur }} после публикации{% endif %}</dd>
+      {% if o.term_days %}<dt>Срок по заказу</dt><dd>{{ o.term_days }} дн.</dd>{% endif %}
+      {% if left is not none %}<dt>Приём откликов</dt><dd>{% if left > 0 %}ещё {{ left | dur }}{% else %}закрыт{% endif %}</dd>{% endif %}
+      {% if o.ai_price or o.ai_days %}<dt>ИИ прикидывает</dt><dd>{{ o.ai_price or "—" }} · {{ o.ai_days or "—" }}</dd>{% endif %}
+      {% if o.matched %}<dt>Совпали слова</dt><dd>{{ o.matched.replace(",", ", ") }}</dd>{% endif %}
+    </dl>
+  </section>
+  </div>
 
   <div class="stack">
   <section class="card stack ai-box" id="ai">

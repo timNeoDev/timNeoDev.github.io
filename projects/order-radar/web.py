@@ -41,7 +41,7 @@ def ago(iso: str | None) -> str:
     return f"{minutes // 1440} дн назад"
 
 
-env.filters.update(rub=db.rub, ago=ago, month_label=lambda ym: MONTHS[int(ym[5:7]) - 1])
+env.filters.update(rub=db.rub, ago=ago, month_label=lambda ym: MONTHS[int(ym[5:7]) - 1], dur=sources.fmt_duration)
 env.globals.update(STAGES=db.STAGES, STAGE_GROUPS=db.STAGE_GROUPS, RESPONSE_STAGES=db.RESPONSE_STAGES,
                    WORK_STAGES=db.WORK_STAGES, ORDER_STATUSES=db.ORDER_STATUSES, FINANCE_TABS=FINANCE_TABS,
                    ten=sources.ten, counts=sources.counts, scam_flags=lambda o: sources.scam_flags(o, db.scam_words()))
@@ -186,8 +186,13 @@ async def order_page(request: web.Request):
                 o = db.get_order(o["id"])
     now = sources.msk_now()
     score = sources.chance(o, now)
+    acc = db.get_account(o["source"])
+    response_price = acc["response_price"] if acc else 0
     return render(request, "order.html", o=o, hot=sources.is_hot(o, now), score=score,
                   chance_label=sources.chance_label(score), templates=db.list_templates(),
+                  response_price=response_price, has_account=bool(acc), verdict=sources.client_verdict(o),
+                  history=db.client_history(o), tips=sources.order_tips(o, response_price, now),
+                  left=sources.time_left(o, now),
                   ai_key=bool(ai.settings()["key"]), ai_msg=request.query.get("ai_msg", ""))
 
 

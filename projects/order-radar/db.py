@@ -29,6 +29,13 @@ EXCHANGES = {"Kwork": "сбор открытых заказов, вход не �
 AI_COLUMNS = (("ai_score", "INTEGER"), ("ai_hot", "INTEGER DEFAULT 0"), ("ai_summary", "TEXT"), ("ai_price", "TEXT"),
               ("ai_days", "TEXT"), ("ai_risks", "TEXT"), ("ai_reply", "TEXT"), ("ai_advice", "TEXT"),
               ("ai_question", "TEXT"), ("ai_answer", "TEXT"))
+# Заказчик и условия заказа — что биржа сообщает в ленте (Kwork — почти всё, Profi — имя и метки, остальные — ничего).
+# client_orders — сколько заказов он разместил на бирже, client_hired — какой процент из них отдал исполнителю,
+# term_days — срок из заказа, expires_at — до какого времени заказ принимает отклики, price_note — цены от биржи как есть.
+CLIENT_COLUMNS = (("client_name", "TEXT"), ("client_url", "TEXT"), ("client_orders", "INTEGER"),
+                  ("client_hired", "INTEGER"), ("client_note", "TEXT"), ("term_days", "TEXT"), ("expires_at", "TEXT"),
+                  ("price_note", "TEXT"))
+CLIENT_KEYS = tuple(c for c, _ in CLIENT_COLUMNS)
 # Числовые настройки (форма «Общие»). ai_min_score — присылать в бот заказы с оценкой ИИ от N из 10 (0 — все);
 # quiet_from/quiet_to — тихие часы (одинаковые — выключены); nudge_hours — через сколько часов после отклика
 # спросить «заказчик ответил?» (0 — не спрашивать).
@@ -118,7 +125,7 @@ def init_db() -> None:
                 conn.execute(f"ALTER TABLE projects ADD COLUMN {col} {ddl}")
         # Разбор заказа нейросетью и скорость доставки уведомления
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(orders)")}
-        for col, ddl in AI_COLUMNS + (("delay_sec", "INTEGER"),):
+        for col, ddl in AI_COLUMNS + (("delay_sec", "INTEGER"),) + CLIENT_COLUMNS:
             if col not in cols:
                 conn.execute(f"ALTER TABLE orders ADD COLUMN {col} {ddl}")
         conn.execute("UPDATE projects SET stage = 'dialog' WHERE stage = 'lead'")
@@ -265,21 +272,37 @@ def is_empty() -> bool:
 
 def upsert_order(o: dict, matched: list[str]) -> int | None:
     """Новый заказ — сохраняет и возвращает id. Уже известный — обновляет просмотры, отклики и бюджет, возвращает None."""
+    client = {k: o.get(k) for k in CLIENT_KEYS}  # у большинства источников этих данных нет — тогда NULL
     with closing(_conn()) as conn, conn:
         cur = conn.execute(
-            """INSERT INTO orders (source, link, title, description, category, budget, budget_max, views, offers,
-                                   published_at, matched)
+            f"""INSERT INTO orders (source, link, title, description, category, budget, budget_max, views, offers,
+                                   published_at, matched, {", ".join(CLIENT_KEYS)})
                VALUES (:source, :link, :title, :description, :category, :budget, :budget_max, :views, :offers,
-                       :published_at, :matched)
+                       :published_at, :matched, {", ".join(":" + k for k in CLIENT_KEYS)})
                ON CONFLICT(link) DO NOTHING""",
-            {**o, "matched": ",".join(matched)},
+            {**o, **client, "matched": ",".join(matched)},
         )
         if cur.rowcount:
             return cur.lastrowid
-        # просмотры и отклики только растут — не затираем нулями, если источник их в этот раз не отдал
-        conn.execute("UPDATE orders SET views = MAX(views, ?), offers = MAX(offers, ?), budget = ?, budget_max = ? "
-                     "WHERE link = ?", (o["views"], o["offers"], o["budget"], o["budget_max"], o["link"]))
+        # просмотры и отклики только растут — не затираем нулями, если источник их в этот раз не отдал;
+        # сведения о заказчике обновляем, только если биржа их прислала
+        conn.execute("UPDATE orders SET views = MAX(views, :views), offers = MAX(offers, :offers), budget = :budget, "
+                     "budget_max = :budget_max, "
+                     + ", ".join(f"{k} = COALESCE(:{k}, {k})" for k in CLIENT_KEYS) + " WHERE link = :link",
+                     {**client, **{k: o[k] for k in ("views", "offers", "budget", "budget_max", "link")}})
         return None
+
+
+def client_history(o) -> dict:
+    """Что радар уже знает о заказчике: сколько его заказов видел и были ли с ним сделки."""
+    url = o["client_url"] if "client_url" in o.keys() else None
+    if not url:
+        return {"seen": 0, "deals": 0, "paid": 0}
+    with closing(_conn()) as conn:
+        seen = conn.execute("SELECT COUNT(*) FROM orders WHERE client_url = ? AND id != ?", (url, o["id"])).fetchone()[0]
+        deals = conn.execute("SELECT COUNT(*), SUM(p.stage = 'paid') FROM projects p JOIN orders o ON o.id = p.order_id "
+                             "WHERE o.client_url = ?", (url,)).fetchone()
+    return {"seen": seen, "deals": deals[0], "paid": deals[1] or 0}
 
 
 def link_exists(link: str) -> bool:
