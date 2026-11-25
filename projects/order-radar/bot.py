@@ -1,4 +1,5 @@
 """Telegram-бот радара: уведомления о заказах, отклики, фильтры, напоминания. Отвечает только владельцу."""
+import logging
 import time
 from datetime import date
 from html import escape
@@ -7,7 +8,7 @@ import aiohttp
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject, CommandStart
-from aiogram.types import BufferedInputFile, CallbackQuery, Message
+from aiogram.types import BotCommand, BufferedInputFile, CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import ai
@@ -213,6 +214,27 @@ def digest_text() -> str:
 
 # ---------- Команды ----------
 
+MENU = [
+    ("start", "Справка"),
+    ("deals", "Сделки в работе"),
+    ("remind", "Кому напомнить, дедлайны"),
+    ("stats", "Статистика"),
+    ("digest", "Сводка сейчас"),
+    ("week", "Отчёт за неделю"),
+    ("keywords", "Ключевые и минус-слова"),
+    ("backup", "Копия базы"),
+    ("cancel", "Отменить ответ заказчику"),
+]
+
+
+async def set_menu(bot: Bot) -> None:
+    """Меню команд у кнопки «/» в Telegram."""
+    try:
+        await bot.set_my_commands([BotCommand(command=c, description=d) for c, d in MENU])
+    except Exception as e:  # меню — не критично, радар работает и без него
+        logging.warning("Не удалось поставить меню команд: %s", e)
+
+
 @router.message(CommandStart())
 async def cmd_start(message: Message):
     await message.answer(
@@ -231,7 +253,10 @@ async def cmd_start(message: Message):
         "/deals — сделки в работе\n"
         "/remind — кому пора напомнить и дедлайны\n"
         "/stats — статистика\n"
-        "/digest — сводка прямо сейчас\n\n"
+        "/digest — сводка прямо сейчас\n"
+        "/week — отчёт за неделю\n"
+        "/backup — прислать копию базы\n"
+        "/cancel — отменить «💬 Ответ заказчику»\n\n"
         f"Админка: {ADMIN_URL}",
         disable_web_page_preview=True,
     )

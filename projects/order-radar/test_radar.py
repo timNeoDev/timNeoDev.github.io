@@ -573,4 +573,12 @@ assert db.get_setting("ai_key") == "sk-secret-123"                              
 w = db.week_stats()
 assert w["found"] >= 1 and w["responses"] >= 1 and set(w) == {"found", "responses", "won", "income", "best_source"}
 assert "Итоги недели" in tgbot.weekly_text() and "Поймано подходящих заказов" in tgbot.weekly_text()
+
+# --- меню команд и справка /start: каждая команда реально обрабатывается ботом ---
+import inspect, re  # noqa: E401,E402
+_handled = set(re.findall(r'Command\(([^)]*)\)', inspect.getsource(tgbot)))
+_handled = {c for grp in _handled for c in re.findall(r'"(\w+)"', grp)} | {"start"}
+_help = set(re.findall(r'"/(\w+)', inspect.getsource(tgbot.cmd_start)))
+assert {"week", "backup", "cancel"} <= _help
+assert {c for c, _ in tgbot.MENU} <= _handled and _help <= _handled, (_help - _handled)
 print("all OK")

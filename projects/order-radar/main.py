@@ -288,6 +288,7 @@ async def main():
         dp = Dispatcher()
         dp.include_router(tg.router)
         await bot.delete_webhook(drop_pending_updates=True)
+        await tg.set_menu(bot)
         await asyncio.gather(poll_forever(bot), dp.start_polling(bot))
     else:
         logging.warning("BOT_TOKEN или ADMIN_ID не заданы — работаю без Telegram, только веб-админка")
