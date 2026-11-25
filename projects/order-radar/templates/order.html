@@ -7,7 +7,7 @@
     <p class="order-src">{{ o.source }}{% if o.category %} · {{ o.category }}{% endif %}</p>
     <h1>{{ o.title }}</h1>
     <div class="row" style="margin-top: 10px">
-      {% if hot %}<span class="badge hot">🔥 горячий</span>{% endif %}
+      {% if mark %}<span class="badge {{ 'top' if mark.startswith('⭐') else 'hot' }}">{{ mark }}</span>{% endif %}
       <span class="badge">{{ ORDER_STATUSES[o.status] }}</span>
       {% if verdict %}<span class="badge {{ 'warn' if verdict[0].startswith(('🆕', '⚠️')) else 'stage-done' }}">{{ verdict[0] }}</span>{% endif %}
       {% for w in o.matched.split(",") if w %}<span class="badge kw">{{ w }}</span>{% endfor %}

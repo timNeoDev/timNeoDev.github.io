@@ -42,7 +42,9 @@ def format_order(o) -> str:
     now = sources.msk_now()
     score = sources.chance(o, now)
     views, offers = sources.counts(o)
-    head = f"🔥 <b>ГОРЯЧИЙ</b> · {escape(o['source'])}" if sources.is_hot(o, now) else f"📥 <b>{escape(o['source'])}</b>"
+    rank = sources.order_rank(o, now)
+    head = (f"⭐ <b>ТОП-ЗАКАЗ</b> · {escape(o['source'])}", f"🔥 <b>ГОРЯЧИЙ</b> · {escape(o['source'])}",
+            f"📥 <b>{escape(o['source'])}</b>")[rank]
     if o["category"]:
         head += f" · {escape(o['category'][:60])}"
     lines = [head, "", f"<b>{escape(o['title'])}</b>", ""]
@@ -130,13 +132,13 @@ def quiet_summary_text(order_ids: list[int]) -> str | None:
     orders = [o for o in (db.get_order(i) for i in dict.fromkeys(order_ids)) if o and o["status"] == "new"]
     if not orders:
         return None
-    orders.sort(key=lambda o: (not sources.is_hot(o, now), -sources.chance(o, now)))
+    orders.sort(key=lambda o: (sources.order_rank(o, now), -sources.chance(o, now)))
     lines = [f"☀️ <b>Пока вы спали — подходящих заказов: {len(orders)}</b>"
-             + (f", горячих: {sum(sources.is_hot(o, now) for o in orders)}" if any(sources.is_hot(o, now) for o in orders) else ""),
+             + (f", топ и горячих: {n}" if (n := sum(sources.order_rank(o, now) < 2 for o in orders)) else ""),
              ""]
     for o in orders[:10]:
         ai_mark = f" · 🤖 {sources.ten(o['ai_score'])}/10" if sources.field(o, "ai_score") is not None else ""
-        lines.append(f"{'🔥 ' if sources.is_hot(o, now) else '• '}<a href=\"{escape(o['link'])}\">{escape(o['title'][:70])}</a>"
+        lines.append(f"{('⭐ ', '🔥 ', '• ')[sources.order_rank(o, now)]}<a href=\"{escape(o['link'])}\">{escape(o['title'][:70])}</a>"
                      f" — {rub(o['budget']) if o['budget'] else 'договорная'}{ai_mark}")
     if len(orders) > 10:
         lines.append(f"\n…и ещё {len(orders) - 10} — в админке: {ADMIN_URL}/orders")
@@ -165,7 +167,7 @@ def weekly_text() -> str:
             f"🏆 Больше всего заказов: {cur['best_source']}\n\n"
             + ("Откликов не было — загляните в /orders, там ждут свежие заказы." if not cur["responses"] else
                "Так держать! 💪" if cur["income"] >= prev["income"] and cur["income"] else
-               "Совет: откликайтесь на заказы с 🔥 и оценкой ИИ 7+ — у них самый высокий шанс."))
+               "Совет: откликайтесь на ⭐ ТОП и 🔥 заказы с оценкой ИИ 7+ — у них самый высокий шанс."))
 
 
 NUDGE_TEMPLATE = ("Здравствуйте! Подскажите, пожалуйста, задача ещё актуальна? Готов приступить в ближайшее время "
@@ -219,7 +221,8 @@ def reminder_text() -> str | None:
 def digest_text() -> str:
     s = db.overview()
     now = sources.msk_now()
-    hot = [o for o in db.list_orders("new", limit=50) if sources.is_hot(o, now)][:3]
+    hot = sorted((o for o in db.list_orders("new", limit=50) if sources.order_rank(o, now) < 2),
+                 key=lambda o: sources.order_rank(o, now))[:3]
     text = (
         "🌙 <b>Сводка за день</b>\n\n"
         f"Найдено подходящих заказов: {s['matched_today']} (ждут решения: {s['new_waiting']})\n"
@@ -230,7 +233,7 @@ def digest_text() -> str:
     )
     if hot:
         text += "\n\n🔥 <b>Ещё можно успеть:</b>\n" + "\n".join(
-            f"• <a href=\"{escape(o['link'])}\">{escape(o['title'][:60])}</a> — {rub(o['budget'])}" for o in hot)
+            f"{('⭐', '🔥')[sources.order_rank(o, now)]} <a href=\"{escape(o['link'])}\">{escape(o['title'][:60])}</a> — {rub(o['budget'])}" for o in hot)
     return text
 
 

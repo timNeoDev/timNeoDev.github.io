@@ -111,6 +111,7 @@ label.inline, .filters label.check, label.check { font-family: var(--sans); font
 .badge { font-family: var(--mono); font-weight: 500; font-size: 11px; letter-spacing: .03em; text-transform: uppercase;
   border-radius: 4px; padding: 2px 7px; background: rgba(255, 255, 255, .07); }
 .badge.hot { background: rgba(255, 35, 87, .18); color: #ff7a98; }
+.badge.top { background: rgba(250, 204, 57, .16); color: #ffd84d; border-color: rgba(250, 204, 57, .45); font-weight: 700; }
 .badge.kw { background: var(--accent-soft); color: #d3a6ff; text-transform: none; }
 .badge.ai { background: rgba(0, 174, 234, .14); color: #6fd3ff; }
 .badge.warn, .stage-revisions, .stage-review, .chance-средний { background: rgba(250, 204, 57, .13); color: #facc39; }

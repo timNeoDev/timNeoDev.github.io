@@ -115,7 +115,8 @@ async def home(request: web.Request):
     return render(
         request, "home.html", s=db.overview(), found=db.found_by_day(14), income=db.income_by_month(6),
         follow_ups=db.follow_ups()[:6], due=db.due_deals(7),
-        hot=[o for o in db.list_orders("new", limit=60) if sources.is_hot(o, now)][:5],
+        hot=sorted((o for o in db.list_orders("new", limit=60) if sources.order_rank(o, now) < 2),
+                   key=lambda o: sources.order_rank(o, now))[:5],
         last_poll=db.get_setting("last_poll"), last_error=db.get_setting("last_error"),
     )
 
@@ -145,11 +146,12 @@ async def orders(request: web.Request):
     hot_only = request.query.get("hot") == "1"
     sort = "fresh" if request.query.get("sort") == "fresh" else "chance"
     now = sources.msk_now()
-    items = [(o, sources.is_hot(o, now), sources.chance(o, now)) for o in db.list_orders(view, q=q, min_budget=budget)]
+    items = [(o, sources.order_mark(o, now), sources.chance(o, now))
+             for o in db.list_orders(view, q=q, min_budget=budget)]
     if hot_only:
         items = [i for i in items if i[1]]
-    if sort == "chance":  # горячие наверху, дальше по шансу (с учётом оценки ИИ); внутри — по новизне
-        items.sort(key=lambda i: (not i[1], -i[2]))
+    if sort == "chance":  # ТОП, потом горячие, дальше по шансу (с учётом оценки ИИ); внутри — по новизне
+        items.sort(key=lambda i: (sources.order_rank(i[0], now), -i[2]))
     return render(request, "orders.html", items=items, view=view, q=q, budget=budget, hot_only=hot_only, sort=sort,
                   chance_label=sources.chance_label, avg_delay=db.avg_delay(), ai_on=ai.enabled())
 
@@ -188,7 +190,7 @@ async def order_page(request: web.Request):
     score = sources.chance(o, now)
     acc = db.get_account(o["source"])
     response_price = acc["response_price"] if acc else 0
-    return render(request, "order.html", o=o, hot=sources.is_hot(o, now), score=score,
+    return render(request, "order.html", o=o, mark=sources.order_mark(o, now), score=score,
                   chance_label=sources.chance_label(score), templates=db.list_templates(),
                   response_price=response_price, has_account=bool(acc), verdict=sources.client_verdict(o),
                   history=db.client_history(o), tips=sources.order_tips(o, response_price, now),

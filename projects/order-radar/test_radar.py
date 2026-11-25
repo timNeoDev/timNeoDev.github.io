@@ -46,6 +46,10 @@ _tips = " ".join(sources.order_tips(_fresh, 100, _now))
 assert "Откликов ещё нет" in _tips and "5 мин назад" in _tips and "10% бюджета" in _tips and "закроется через 3 ч" in _tips
 assert not any("бюджета" in t for t in sources.order_tips(_fresh, 10, _now))   # 1% бюджета — не тревожим
 assert sources.fmt_duration(65) == "1 мин 5 сек" and sources.fmt_duration(90000) == "1 дн 1 ч"
+# ТОП: оценка ИИ 9–10 подписывается «топ», а не «горячий», и стоит выше горячих
+assert sources.order_mark({**_fresh, "ai_score": 92}, _now) == "⭐ ТОП"
+assert sources.order_mark({**_fresh, "ai_score": 80}, _now) == "🔥 горячий"                # свежий, 0 откликов
+assert sources.order_mark({**o, "ai_score": 50}, _now) == "" and sources.order_rank({**_fresh, "ai_score": 95}, _now) == 0
 
 # --- FL.ru: свежая лента fl.ru/projects (RSS кешируется до часа) ---
 FL_HTML = ('<div class="x" id="project-item111"><h2><a id="prj_name_111" class="a" href="/projects/111/bot.html">Telegram-бот '

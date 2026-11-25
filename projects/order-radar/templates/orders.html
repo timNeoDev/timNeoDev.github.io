@@ -2,7 +2,7 @@
 {% block title %}Заказы{% endblock %}
 {% block content %}
 <div class="page-head">
-  <div><h1>Заказы с бирж</h1><p>Kwork, FL.ru, freelance.ru, Weblancer, Profi.ru и Telegram · проверка каждые 15–30 секунд · горячие и с высоким шансом — наверху{% if ai_on %} · 🤖 ИИ разбирает каждый новый заказ{% endif %}{% if avg_delay is not none %} · ⚡ в среднем заказ доходит за {{ avg_delay }} сек{% endif %}</p></div>
+  <div><h1>Заказы с бирж</h1><p>Kwork, FL.ru, freelance.ru, Weblancer, Profi.ru и Telegram · проверка каждые 15–30 секунд · ⭐ топ (ИИ 9–10) и 🔥 горячие — наверху{% if ai_on %} · 🤖 ИИ разбирает каждый новый заказ{% endif %}{% if avg_delay is not none %} · ⚡ в среднем заказ доходит за {{ avg_delay }} сек{% endif %}</p></div>
 </div>
 
 <nav class="tabs" aria-label="Статус">
@@ -15,9 +15,9 @@
   <input type="hidden" name="view" value="{{ view }}">
   <input type="search" name="q" value="{{ q }}" placeholder="Поиск по тексту" aria-label="Поиск по тексту">
   <input type="number" name="budget" value="{{ budget or '' }}" min="0" step="500" placeholder="Бюджет от, ₽" aria-label="Бюджет от">
-  <label class="check"><input type="checkbox" name="hot" value="1" {{ 'checked' if hot_only }}> Только 🔥 горячие</label>
+  <label class="check"><input type="checkbox" name="hot" value="1" {{ 'checked' if hot_only }}> Только ⭐ топ и 🔥 горячие</label>
   <select name="sort" aria-label="Сортировка" style="width: auto">
-    <option value="chance" {{ 'selected' if sort == 'chance' }}>Сначала горячие и с высоким шансом</option>
+    <option value="chance" {{ 'selected' if sort == 'chance' }}>Сначала топ, горячие и с высоким шансом</option>
     <option value="fresh" {{ 'selected' if sort == 'fresh' }}>Сначала новые</option>
   </select>
   <button class="btn">Применить</button>
@@ -25,11 +25,11 @@
 </form>
 
 <div class="stack">
-{% for o, hot, ch in items %}
+{% for o, mark, ch in items %}
   <article class="card order">
     <div class="row">
       <span class="badge chance-{{ chance_label(ch) }}" title="Шанс {{ ten(ch) }} из 10: свежесть, число откликов, бюджет">шанс: {{ chance_label(ch) }}</span>
-      {% if hot %}<span class="badge hot">🔥 горячий</span>{% endif %}
+      {% if mark %}<span class="badge {{ 'top' if mark.startswith('⭐') else 'hot' }}">{{ mark }}</span>{% endif %}
       {% if o.ai_score is not none %}<span class="badge ai" title="Оценка нейросети: насколько заказ вам подходит">🤖 {{ ten(o.ai_score) }}/10</span>{% endif %}
       {% set flags = scam_flags(o) %}{% if flags %}<span class="badge warn" title="Слова-маркеры подвоха: {{ flags | join(', ') }}">⚠️ {{ flags[0] }}{% if flags | length > 1 %} +{{ flags | length - 1 }}{% endif %}</span>{% endif %}
       {% if view == "all" and not o.matched %}<span class="badge">не подходит под фильтры</span>{% endif %}

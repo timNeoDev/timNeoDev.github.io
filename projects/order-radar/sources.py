@@ -116,6 +116,22 @@ def msk_now() -> datetime:
     return (datetime.now(timezone.utc) + timedelta(hours=3)).replace(tzinfo=None)
 
 
+def is_top(order) -> bool:
+    """ТОП — нейросеть оценила заказ на 9–10 из 10: подписываем «топ», а не «горячий»."""
+    ai = field(order, "ai_score")
+    return ai is not None and ten(ai) >= 9
+
+
+def order_rank(order, now: datetime) -> int:
+    """0 — ТОП, 1 — горячий, 2 — обычный (для сортировки: топ выше горячих)."""
+    return 0 if is_top(order) else 1 if is_hot(order, now) else 2
+
+
+def order_mark(order, now: datetime) -> str:
+    """Метка заказа для показа: «⭐ ТОП», «🔥 горячий» или ''."""
+    return ("⭐ ТОП", "🔥 горячий", "")[order_rank(order, now)]
+
+
 def is_hot(order, now: datetime) -> bool:
     if not order["published_at"]:
         return False
