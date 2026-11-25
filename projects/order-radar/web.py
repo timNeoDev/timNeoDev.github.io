@@ -191,7 +191,7 @@ async def order_page(request: web.Request):
     acc = db.get_account(o["source"])
     response_price = acc["response_price"] if acc else 0
     return render(request, "order.html", o=o, mark=sources.order_mark(o, now), score=score,
-                  chance_label=sources.chance_label(score), templates=db.list_templates(),
+                  chance_label=sources.chance_label(score), tpl_rows=sources.rank_templates(db.list_templates(), o),
                   response_price=response_price, has_account=bool(acc), verdict=sources.client_verdict(o),
                   history=db.client_history(o), tips=sources.order_tips(o, response_price, now),
                   left=sources.time_left(o, now),
@@ -351,11 +351,12 @@ async def templates_page(request: web.Request):
     if request.method == "POST":
         form = await request.post()
         try:
-            db.save_template(str(form.get("title", "")), str(form.get("body", "")), to_int(form.get("id")) or None)
+            db.save_template(str(form.get("title", "")), str(form.get("body", "")), to_int(form.get("id")) or None,
+                             str(form.get("niche", "")), str(form.get("words", "")))
         except ValueError:
             raise web.HTTPBadRequest(text="Заполните название и текст шаблона")
         raise web.HTTPFound("/templates")
-    return render(request, "templates.html", templates=db.list_templates())
+    return render(request, "templates.html", templates=db.list_templates(), placeholders=sources.PLACEHOLDERS)
 
 
 async def template_delete(request: web.Request):

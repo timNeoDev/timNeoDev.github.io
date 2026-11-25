@@ -225,6 +225,39 @@ def order_tips(o, response_price: int, now: datetime) -> list[str]:
     return tips
 
 
+# ---------- Шаблоны откликов: подстановка и подбор по нише (без нейросети) ----------
+
+PLACEHOLDERS = ("{имя}", "{задача}", "{срок}", "{цена}", "{биржа}")
+
+
+def fill_template(body: str, o) -> str:
+    """Подставляет данные заказа: {имя} {задача} {срок} {цена} {биржа}.
+    Чего биржа не сообщила — заменяется нейтральной фразой (имени нет — «Здравствуйте, {имя}!» → «Здравствуйте!»)."""
+    name = (field(o, "client_name") or "").strip()
+    if not name:
+        body = re.sub(r",\s*\{имя\}", "", body)
+    term = field(o, "term_days")
+    term = f"{term} дн." if term else (field(o, "ai_days") or "обсудим после уточнения деталей")
+    budget = o["budget"] if "budget" in o.keys() else 0
+    price = f"{budget:,} ₽".replace(",", " ") if budget else (field(o, "ai_price") or "назову после уточнения деталей")
+    for key, value in (("{имя}", name), ("{задача}", (o["title"] or "").strip()), ("{срок}", term), ("{цена}", price),
+                       ("{биржа}", o["source"])):
+        body = body.replace(key, str(value))
+    return body
+
+
+def template_fits(t, o) -> list[str]:
+    """Слова ниши шаблона, найденные в заказе ([] — шаблон не под этот заказ)."""
+    words = [w.strip() for w in (field(t, "words") or "").split(",") if w.strip()]
+    return match(f"{o['title']} {o['description'] or ''} {o['category'] or ''}", words) if words else []
+
+
+def rank_templates(templates, o) -> list[tuple]:
+    """[(шаблон, заполненный текст, совпавшие слова)] — подходящие к заказу сверху."""
+    rows = [(t, fill_template(t["body"], o), template_fits(t, o)) for t in templates]
+    return sorted(rows, key=lambda r: -len(r[2]))
+
+
 def parse_kwork(html: str) -> list[dict]:
     categories = dict(re.findall(r'"CATID":"(\d+)","id":"\d+","name":"([^"]+)"', html))
     orders = []

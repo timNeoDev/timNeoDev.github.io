@@ -108,7 +108,7 @@ def order_kb(o):
     kb.button(text="✍️ Отклик от ИИ", callback_data=f"ai:{o['id']}", style=BLUE)
     kb.button(text="💡 Совет ИИ", callback_data=f"adv:{o['id']}")
     kb.button(text="💬 Ответ заказчику", callback_data=f"ask:{o['id']}")
-    kb.button(text="📝 Шаблоны", callback_data="tpl")
+    kb.button(text="📝 Шаблоны", callback_data=f"tpl:{o['id']}")
     kb.button(text="🔄 Обновить цифры", callback_data=f"upd:{o['id']}")
     if o["status"] == "new":
         kb.button(text="🙈 Скрыть", callback_data=f"st:{o['id']}:hidden", style=RED)
@@ -581,12 +581,23 @@ async def ai_advice(call: CallbackQuery):
                               disable_web_page_preview=True)
 
 
-@router.callback_query(F.data == "tpl")
+@router.callback_query(F.data.startswith("tpl"))
 async def show_templates(call: CallbackQuery):
+    """Шаблоны под заказ: данные подставлены, подходящие по нише — первыми (старые кнопки без id — как есть)."""
     templates = db.list_templates()
     await call.answer()
     if not templates:
         await call.message.answer(f"Шаблонов пока нет — добавьте в админке: {ADMIN_URL}/templates")
         return
-    for t in templates:  # <code> копируется в Telegram одним нажатием
-        await call.message.answer(f"📝 <b>{escape(t['title'])}</b>\n\n<code>{escape(t['body'])}</code>")
+    _, _, order_id = call.data.partition(":")
+    o = db.get_order(int(order_id)) if order_id.isdigit() else None
+    if not o:
+        rows = [(t, t["body"], []) for t in templates]
+    else:
+        rows = sources.rank_templates(templates, o)
+        rows = [r for r in rows if r[2]][:3] or rows[:3]  # не заваливаем чат: до трёх лучших
+    for t, text, fits in rows:  # <code> копируется в Telegram одним нажатием
+        mark = "✅ подходит · " if fits else ""
+        await call.message.answer(f"📝 {mark}<b>{escape(t['title'])}</b>\n\n<code>{escape(text)}</code>")
+    if o and len(templates) > len(rows):
+        await call.message.answer(f"Все шаблоны — на странице заказа: {ADMIN_URL}/orders/{o['id']}")

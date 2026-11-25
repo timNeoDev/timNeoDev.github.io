@@ -56,6 +56,36 @@ DEFAULT_TEMPLATES = [
     ("Парсер", "Здравствуйте! Напишу парсер на Python: сбор данных по расписанию, выгрузка в CSV/Excel или Google Таблицы, "
                "уведомления в Telegram. Подскажите, пожалуйста, сайт-источник и какие поля нужны?"),
 ]
+# Ниши шаблонов: (ниша, слова ниши — начала слов, по которым шаблон подходит к заказу). Ключ — название шаблона.
+TEMPLATE_NICHES = {
+    "Telegram-бот": ("Telegram-боты", "бот, telegram, телеграм, aiogram, mini app"),
+    "Лендинг": ("Сайты", "лендинг, сайт, верстк, landing, одностранич"),
+    "Парсер": ("Парсинг", "парс, скрап, сбор данных, выгрузк"),
+}
+# Шаблоны с подстановкой {имя} {задача} {срок} {цена} {биржа} — добавляются один раз (настройка tpl_niches_v1).
+# Без упоминания ИИ, без выдуманного опыта; ссылки — только на реальные работы.
+NICHE_TEMPLATES = [
+    ("Бот — с подстановкой", "Telegram-боты", "бот, telegram, телеграм, aiogram, mini app",
+     "Здравствуйте, {имя}! По задаче «{задача}»: сделаю бота на Python (aiogram 3) — меню, база данных, "
+     "уведомления администратору, всё по вашему сценарию. Пример бота для записи клиентов: "
+     "https://t.me/zayavki_demo_pro_bot. Срок — {срок}, стоимость — {цена}. Подскажите, какие разделы нужны в первую очередь?"),
+    ("Сайт — с подстановкой", "Сайты", "лендинг, сайт, верстк, landing, одностранич",
+     "Здравствуйте, {имя}! Возьмусь за «{задача}»: адаптивная вёрстка, быстрая загрузка, форма заявки. "
+     "Пример работы: https://timneodev.github.io/projects/coffee-landing/. Срок — {срок}, стоимость — {цена}. "
+     "Есть ли макет или сайты, которые вам нравятся?"),
+    ("Парсер — с подстановкой", "Парсинг", "парс, скрап, сбор данных, выгрузк",
+     "Здравствуйте, {имя}! По задаче «{задача}»: напишу парсер на Python — сбор по расписанию, выгрузка в "
+     "Excel/Google Таблицы, уведомления в Telegram. Срок — {срок}, стоимость — {цена}. "
+     "Подскажите сайт-источник и какие поля нужны?"),
+    ("Доработка и исправления", "Доработка", "доработ, исправ, ошибк, баг, правк, поддержк, допил",
+     "Здравствуйте, {имя}! Посмотрю «{задача}»: сначала разберусь в коде и назову, что именно нужно поправить, "
+     "потом внесу изменения и проверю, что всё работает. Срок — {срок}, стоимость — {цена}. "
+     "Пришлите, пожалуйста, доступ к коду или описание ошибки."),
+    ("Автоматизация и интеграции", "Автоматизация", "автоматиз, скрипт, интеграц, api, google таблиц, crm, вебхук",
+     "Здравствуйте, {имя}! По задаче «{задача}»: настрою автоматизацию на Python — связка сервисов через API, "
+     "Google Таблицы, уведомления в Telegram. Срок — {срок}, стоимость — {цена}. "
+     "Какие сервисы нужно связать и что должно происходить на выходе?"),
+]
 
 
 def rub(n) -> str:
@@ -134,8 +164,18 @@ def init_db() -> None:
         if not conn.execute("SELECT 1 FROM filters LIMIT 1").fetchone():
             conn.executemany("INSERT INTO filters VALUES ('plus', ?)", [(w,) for w in DEFAULT_KEYWORDS])
             conn.executemany("INSERT INTO filters VALUES ('minus', ?)", [(w,) for w in DEFAULT_MINUS_WORDS])
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(templates)")}
+        for col in ("niche", "words"):  # ниша шаблона и слова, по которым он подходит к заказу
+            if col not in cols:
+                conn.execute(f"ALTER TABLE templates ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
         if not conn.execute("SELECT 1 FROM templates LIMIT 1").fetchone():
             conn.executemany("INSERT INTO templates (title, body) VALUES (?, ?)", DEFAULT_TEMPLATES)
+        for title, (niche, words) in TEMPLATE_NICHES.items():  # стандартным шаблонам — ниша, если её ещё нет
+            conn.execute("UPDATE templates SET niche = ?, words = ? WHERE title = ? AND niche = '' AND words = ''",
+                         (niche, words, title))
+        if not conn.execute("SELECT 1 FROM settings WHERE key = 'tpl_niches_v1'").fetchone():
+            conn.executemany("INSERT INTO templates (title, niche, words, body) VALUES (?, ?, ?, ?)", NICHE_TEMPLATES)
+            conn.execute("INSERT INTO settings VALUES ('tpl_niches_v1', '1')")
         conn.executemany("INSERT OR IGNORE INTO accounts (exchange, enabled) VALUES (?, ?)",
                          [("Kwork", 1), ("FL.ru", 1), ("freelance.ru", 1), ("Weblancer", 1), ("Profi.ru", 0)])
         conn.executemany("INSERT OR IGNORE INTO settings VALUES (?, ?)", SETTINGS_DEFAULTS.items())
@@ -517,17 +557,19 @@ def clients():
 
 def list_templates():
     with closing(_conn()) as conn:
-        return conn.execute("SELECT * FROM templates ORDER BY id").fetchall()
+        return conn.execute("SELECT * FROM templates ORDER BY niche = '', niche, id").fetchall()
 
 
-def save_template(title: str, body: str, template_id: int | None = None) -> None:
+def save_template(title: str, body: str, template_id: int | None = None, niche: str = "", words: str = "") -> None:
     if not title.strip() or not body.strip():
         raise ValueError("empty template")
+    niche, words = niche.strip()[:60], ", ".join(w.strip() for w in words.split(",") if w.strip())[:300]
     with closing(_conn()) as conn, conn:
         if template_id:
-            conn.execute("UPDATE templates SET title = ?, body = ? WHERE id = ?", (title, body, template_id))
+            conn.execute("UPDATE templates SET title = ?, body = ?, niche = ?, words = ? WHERE id = ?",
+                         (title, body, niche, words, template_id))
         else:
-            conn.execute("INSERT INTO templates (title, body) VALUES (?, ?)", (title, body))
+            conn.execute("INSERT INTO templates (title, body, niche, words) VALUES (?, ?, ?, ?)", (title, body, niche, words))
 
 
 def delete_template(template_id: int) -> None:

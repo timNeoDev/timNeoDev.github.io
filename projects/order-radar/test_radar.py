@@ -197,6 +197,25 @@ db.upsert_order({**o, "client_hired": 80}, ["бот"])
 db.upsert_order({**o, "link": "https://kwork.ru/projects/778"}, ["бот"])           # второй заказ того же заказчика
 assert db.client_history(db.get_order(oid)) == {"seen": 1, "deals": 0, "paid": 0}
 
+# --- шаблоны по нишам с подстановкой (без нейросети) ---
+_tpls = db.list_templates()
+assert len(_tpls) == len(db.DEFAULT_TEMPLATES) + len(db.NICHE_TEMPLATES)
+assert {t["title"]: t["niche"] for t in _tpls}["Telegram-бот"] == "Telegram-боты"        # старым — ниша проставлена
+db.init_db()
+assert len(db.list_templates()) == len(_tpls)                                            # новые добавлены один раз
+_body = "Здравствуйте, {имя}! По задаче «{задача}» ({биржа}): срок — {срок}, стоимость — {цена}."
+_ord = db.get_order(oid)
+assert sources.fill_template(_body, _ord) == (
+    "Здравствуйте, ivan_k! По задаче «Бот для записи» (Kwork): срок — 3 дн., стоимость — 5 000 ₽.")
+_anon = {**dict(_ord), "client_name": None, "term_days": None, "ai_days": None, "budget": 0, "ai_price": None}
+assert sources.fill_template(_body, _anon) == ("Здравствуйте! По задаче «Бот для записи» (Kwork): срок — обсудим после "
+                                               "уточнения деталей, стоимость — назову после уточнения деталей.")
+_ranked = sources.rank_templates(db.list_templates(), _ord)
+assert _ranked[0][2] and _ranked[0][0]["niche"] == "Telegram-боты"                       # бот-заказ → шаблон про ботов
+assert "{" not in " ".join(text for _, text, _ in _ranked)                               # все подстановки заменены
+db.save_template("Тест", "Привет, {имя}", None, " Тесты ", "тест, проверк ,")
+assert [(t["niche"], t["words"]) for t in db.list_templates() if t["title"] == "Тест"] == [("Тесты", "тест, проверк")]
+
 # --- аккаунты бирж: цена отклика, подключение, отключение ---
 db.set_response_price("Kwork", 50)
 db.connect_account("Profi.ru", "+79990000000", "cookie=secret")
