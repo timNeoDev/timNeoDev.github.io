@@ -52,6 +52,46 @@ assert (fl[1]["budget"], fl[1]["offers"]) == (0, 0)
 assert sources.parse_ago("2 дня назад", datetime(2026, 11, 23)) == datetime(2026, 11, 21)
 assert sources.parse_ago("вчера", datetime(2026, 11, 23)) is None
 
+# --- freelance.ru: лента freelance.ru/task (структура карточки task-card) ---
+FR_HTML = ('<a href="/task/create">Разместить</a><article class="task-card"><div class="task-card__main">'
+           '<a class="task-card__title-link" href="/task/view/16445" title="Бот"> Telegram-бот &amp; сайт </a>'
+           '<p class="task-card__desc">Нужен бот для записи...</p>'
+           '<div class="task-card__chips"><span class="task-chip task-chip--cat">Программирование</span></div>'
+           '<span class="task-card__foot-item" title="x"> <i class="fa fa-clock-o" aria-hidden="true"></i> 1 час 5 минут назад </span>'
+           '<span class="task-card__foot-item"> <i class="fa fa-comments" aria-hidden="true"></i> <strong>4</strong> </span>'
+           '<span class="task-card__foot-item"> <i class="fa fa-eye" aria-hidden="true"></i> 1 505 </span></div>'
+           '<div class="task-card__budget"><span class="bold">14 200 &#8381;</span> <span class="cost-unit">/ заказ</span></div>'
+           '</article><article class="task-card"><a class="task-card__title-link" href="/task/view/2">Без цены</a>'
+           '<p class="task-card__desc">Коротко</p></article>')
+fr = sources.parse_freelanceru_list(FR_HTML, datetime(2026, 11, 23, 12, 0))
+assert [x["link"] for x in fr] == ["https://freelance.ru/task/view/16445", "https://freelance.ru/task/view/2"]
+assert fr[0]["title"] == "Telegram-бот & сайт" and fr[0]["category"] == "Программирование"
+assert (fr[0]["budget"], fr[0]["views"], fr[0]["offers"], fr[0]["cut"]) == (14200, 1505, 4, True)
+assert fr[0]["published_at"] == "2026-11-23T10:55:00"
+assert (fr[1]["budget"], fr[1]["offers"], fr[1]["published_at"], fr[1]["cut"]) == (0, 0, None, False)
+assert sources.parse_freelanceru_page('<h1>Бот</h1> Нужен  бот.<br />\n<br />\n<br />Срок — неделя<br />\n'
+                                      '<div class="tv-hero__meta">Гонорар</div>') == "Нужен бот.\n\nСрок — неделя"
+assert sources.parse_freelanceru_page("<h1>Бот</h1> без блока гонорара") == ""  # вёрстка сменилась — не врём
+
+# --- Weblancer: лента weblancer.net/freelance (дата без времени, бюджет в $) ---
+WL_HTML = ('<article class="bg-white"><div><span><svg><path d="M323"></path></svg></span>'
+           '<h2 class="t"><a class="l" href="/freelance/veb-programmirovanie-31/telegram-bot-1270700/">Telegram-бот</a></h2>'
+           '<span class="text-green-600">100<!-- --> $</span></div><p class="text-gray-600">Нужен бот &amp; админка</p>'
+           '<div><a class="c" href="/freelance/python/">Python</a><a class="c" href="/freelance/boti/">Боты</a></div>'
+           '<div><div><svg></svg><span>23.11.2026</span></div><div><span>3 заявки</span></div>'
+           '<div><span>36 просмотров</span></div></div></article>'
+           '<article><h2><a href="/freelance/dizain-18/logo-1270600/">Логотип</a></h2><p>Старый</p>'
+           '<span>20.11.2026</span><span>67 заявок</span></article>')
+wl = sources.parse_weblancer_list(WL_HTML, datetime(2026, 11, 23, 15, 30))
+assert [x["link"] for x in wl] == ["https://www.weblancer.net/freelance/veb-programmirovanie-31/telegram-bot-1270700/",
+                                   "https://www.weblancer.net/freelance/dizain-18/logo-1270600/"]
+assert wl[0]["title"] == "Telegram-бот" and wl[0]["category"] == "Python, Боты"
+assert wl[0]["budget"] == int(100 * sources.USD_RUB) and wl[0]["description"].startswith("Нужен бот & админка")
+assert wl[0]["description"].endswith("Бюджет на бирже: 100 $")        # в описании <p>, а не <path> из иконки
+assert (wl[0]["views"], wl[0]["offers"], wl[0]["published_at"]) == (36, 3, "2026-11-23T15:30:00")  # сегодня — «сейчас»
+assert (wl[1]["budget"], wl[1]["offers"], wl[1]["published_at"]) == (0, 67, "2026-11-20T12:00:00")  # раньше — полдень
+assert {name for name, _ in sources.SOURCES} <= set(db.EXCHANGES)   # каждую биржу можно включить в настройках
+
 # --- Profi.ru: лента специалиста (структура ответа BoSearchBoardItems) и cookie сессии ---
 import base64, json as _json, profi  # noqa: E401,E402
 snippet = {"id": "96314683", "type": "SNIPPET", "title": "Создание сайтов",
@@ -117,7 +157,8 @@ db.DB_PATH = os.path.join(tempfile.mkdtemp(), "test.db")
 db.init_db()
 db.init_db()                                                        # повторный запуск не ломает базу
 assert "бот" in db.get_words("plus") and "дизайн" in db.get_words("minus")
-assert {a["exchange"]: a["enabled"] for a in db.list_accounts()} == {"Kwork": 1, "FL.ru": 1, "Profi.ru": 0}
+assert {a["exchange"]: a["enabled"] for a in db.list_accounts()} == {"Kwork": 1, "FL.ru": 1, "freelance.ru": 1,
+                                                                        "Weblancer": 1, "Profi.ru": 0}
 oid = db.upsert_order(o, ["бот"])
 assert oid and db.upsert_order({**o, "views": 99, "offers": 5}, ["бот"]) is None
 db.upsert_order({**o, "views": 0, "offers": 0}, ["бот"])                             # источник не отдал цифры

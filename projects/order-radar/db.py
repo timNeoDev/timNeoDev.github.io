@@ -22,7 +22,9 @@ STAGE_GROUPS = {"responses": ("Отклики", tuple(RESPONSE_STAGES)), "work":
 ACTIVE_STAGES = tuple(RESPONSE_STAGES) + tuple(WORK_STAGES)
 FILTER_KINDS = ("plus", "minus")
 EXCHANGES = {"Kwork": "сбор открытых заказов, вход не нужен",
-             "FL.ru": "RSS-ленты разделов «Программирование» и «Сайты», вход не нужен",
+             "FL.ru": "свежая лента fl.ru/projects (запасной путь — RSS), вход не нужен",
+             "freelance.ru": "лента открытых заданий, вход не нужен",
+             "Weblancer": "лента заказов; бюджет в $ переводится в ₽ по примерному курсу, время — по дате, вход не нужен",
              "Profi.ru": "заказы видны только после входа в аккаунт"}
 AI_COLUMNS = (("ai_score", "INTEGER"), ("ai_hot", "INTEGER DEFAULT 0"), ("ai_summary", "TEXT"), ("ai_price", "TEXT"),
               ("ai_days", "TEXT"), ("ai_risks", "TEXT"), ("ai_reply", "TEXT"), ("ai_advice", "TEXT"),
@@ -128,7 +130,7 @@ def init_db() -> None:
         if not conn.execute("SELECT 1 FROM templates LIMIT 1").fetchone():
             conn.executemany("INSERT INTO templates (title, body) VALUES (?, ?)", DEFAULT_TEMPLATES)
         conn.executemany("INSERT OR IGNORE INTO accounts (exchange, enabled) VALUES (?, ?)",
-                         [("Kwork", 1), ("FL.ru", 1), ("Profi.ru", 0)])
+                         [("Kwork", 1), ("FL.ru", 1), ("freelance.ru", 1), ("Weblancer", 1), ("Profi.ru", 0)])
         conn.executemany("INSERT OR IGNORE INTO settings VALUES (?, ?)", SETTINGS_DEFAULTS.items())
         if not conn.execute("SELECT 1 FROM tg_sources LIMIT 1").fetchone():
             conn.executemany("INSERT INTO tg_sources (username, kind) VALUES (?, 'channel')",

@@ -239,7 +239,7 @@ async def set_menu(bot: Bot) -> None:
 async def cmd_start(message: Message):
     await message.answer(
         "📡 <b>LastixParser</b> — ловлю заказы с бирж раньше всех\n\n"
-        "Каждые 15–30 секунд проверяю Kwork, FL.ru и Telegram-каналы (Profi.ru — раз в минуту) и присылаю подходящие заказы.\n"
+        "Каждые 15–30 секунд проверяю Kwork, FL.ru, freelance.ru, Weblancer и Telegram-каналы (Profi.ru — раз в минуту) и присылаю подходящие заказы.\n"
         "«🔗 Перейти к заказу» — откликаетесь на бирже, потом «✔ Я откликнулся» — отклик засчитан, сделка в админке.\n"
         "«✍️ Отклик от ИИ» пишет текст отклика под заказ.\n\n"
         "<b>Фильтры</b>\n"

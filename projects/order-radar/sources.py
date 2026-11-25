@@ -11,7 +11,7 @@ import xml.etree.ElementTree as ET
 from email.utils import parsedate_to_datetime
 
 from config import (FL_FEEDS, HIRING_WORDS, HOT_MAX_AGE_MIN, HOT_MAX_OFFERS, KWORK_PAGES, KWORK_URL,
-                    TG_KEYWORD_ZONE, TG_MAX_AGE_DAYS)
+                    TG_KEYWORD_ZONE, TG_MAX_AGE_DAYS, USD_RUB)
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
@@ -213,16 +213,6 @@ def parse_fl_page(html: str) -> str:
     return "\n".join(line.strip() for line in text.strip().splitlines())
 
 
-async def fetch_fl_full(session: aiohttp.ClientSession, link: str) -> str:
-    try:
-        async with session.get(link, headers=HEADERS, timeout=aiohttp.ClientTimeout(total=20)) as resp:
-            resp.raise_for_status()
-            return parse_fl_page(await resp.text())
-    except (aiohttp.ClientError, TimeoutError) as e:
-        logging.warning("FL.ru, полный текст %s: %s", link, e)
-        return ""
-
-
 # Лента fl.ru/projects: свежая (no-store), сразу по всем разделам, с числом откликов и просмотров.
 # RSS FL кешируется до часа (max-age=3600) — из-за этого заказы приходили с опозданием до 30+ минут.
 FL_LIST_URL = "https://www.fl.ru/projects/"
@@ -321,7 +311,139 @@ async def fetch_fl_rss(session: aiohttp.ClientSession) -> list[dict]:
     return orders
 
 
-SOURCES = [("Kwork", fetch_kwork), ("FL.ru", fetch_fl)]
+# ---------- freelance.ru (лента freelance.ru/task) ----------
+
+FR_LIST_URL = "https://freelance.ru/task"
+FR_CARD_RE = re.compile(r'<article class="task-card.*?</article>', re.S)
+FR_TEXT_RE = re.compile(r"<h1>.*?</h1>(.*?)<div class=\"tv-hero__meta\"", re.S)
+
+
+def _int(text: str) -> int:
+    return int(re.sub(r"\D", "", text) or 0)
+
+
+def parse_freelanceru_list(html: str, now: datetime) -> list[dict]:
+    orders = []
+    for card in FR_CARD_RE.findall(html):
+        title_m = re.search(r'class="task-card__title-link" href="(/task/view/\d+)"[^>]*>(.*?)</a>', card, re.S)
+        if not title_m:
+            continue
+        desc_m = re.search(r'class="task-card__desc">(.*?)</p>', card, re.S)
+        description = _text(desc_m.group(1)) if desc_m else ""
+        budget_m = re.search(r'task-card__budget">(.*?)</div>', card, re.S)
+        budget = _int(_text(budget_m.group(1)).split("/")[0]) if budget_m else 0  # «4 500 ₽ / заказ»
+        when_m = re.search(r'fa-clock-o[^>]*></i>(.*?)</span>', card, re.S)
+        published = parse_ago(_text(when_m.group(1)), now) if when_m else None
+        offers_m = re.search(r'fa-comments[^>]*></i>(.*?)</span>', card, re.S)
+        views_m = re.search(r'fa-eye[^>]*></i>(.*?)</span>', card, re.S)
+        orders.append({
+            "source": "freelance.ru", "link": "https://freelance.ru" + title_m.group(1), "title": _text(title_m.group(2)),
+            "description": description,
+            "category": ", ".join(_text(c) for c in re.findall(r'task-chip--cat">(.*?)</span>', card, re.S)),
+            "budget": budget, "budget_max": budget,
+            "views": _int(_text(views_m.group(1))) if views_m else 0,
+            "offers": _int(_text(offers_m.group(1))) if offers_m else 0,
+            "published_at": published.replace(microsecond=0).isoformat() if published else None,
+            "cut": description.endswith(("...", "…")),  # в ленте описание обрезано — полное на странице заказа
+        })
+    return orders
+
+
+def parse_freelanceru_page(html: str) -> str:
+    """Полное описание со страницы задания freelance.ru. '' — не нашли (сменилась вёрстка)."""
+    m = FR_TEXT_RE.search(html)
+    if not m:
+        return ""
+    text = unescape(re.sub(r"<[^>]+>", "", re.sub(r"<br\s*/?>", "\n", m.group(1))))
+    text = "\n".join(re.sub(r"[ \t\xa0]+", " ", line).strip() for line in text.strip().splitlines())
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+async def fetch_freelanceru(session: aiohttp.ClientSession, pages: int = 1) -> list[dict]:
+    orders = []
+    for page in range(1, min(pages, 2) + 1):
+        try:
+            async with session.get(FR_LIST_URL, params={"page": page} if page > 1 else None, headers=HEADERS,
+                                   timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                resp.raise_for_status()
+                orders += parse_freelanceru_list(await resp.text(), msk_now())
+        except (aiohttp.ClientError, TimeoutError) as e:
+            logging.warning("freelance.ru, страница %s: %s", page, e)
+            break
+    return orders
+
+
+# ---------- Weblancer (лента weblancer.net/freelance) ----------
+# В ленте только дата без времени, бюджет — в долларах (переводим в рубли по курсу USD_RUB из .env).
+
+WL_LIST_URL = "https://www.weblancer.net/freelance/"
+WL_CARD_RE = re.compile(r"<article.*?</article>", re.S)
+
+
+def parse_weblancer_list(html: str, now: datetime) -> list[dict]:
+    orders = []
+    for card in WL_CARD_RE.findall(html):
+        title_m = re.search(r'<h2[^>]*>\s*<a[^>]*href="(/freelance/[^"]+-\d+/)"[^>]*>(.*?)</a>', card, re.S)
+        if not title_m:
+            continue
+        price_m = re.search(r'</h2>\s*<span[^>]*>(.*?)</span>', card, re.S)
+        price = _text(re.sub(r"<!--.*?-->", "", price_m.group(1))) if price_m else ""
+        amount = _int(price)
+        rate = USD_RUB if "$" in price else 1 if ("₽" in price or "руб" in price) else 0
+        budget = int(amount * rate)
+        desc_m = re.search(r"<p(?:\s[^>]*)?>(.*?)</p>", card, re.S)  # не <path> из иконок
+        description = _text(desc_m.group(1)) if desc_m else ""
+        if amount and rate != 1:
+            description += f"\n\nБюджет на бирже: {price}"
+        date_m = re.search(r"<span>(\d{2})\.(\d{2})\.(\d{4})</span>", card)
+        published = None
+        if date_m:
+            day = datetime(int(date_m.group(3)), int(date_m.group(2)), int(date_m.group(1)))
+            # время в ленте не указано: сегодняшний заказ — «только что» (радар видит его в первые же секунды),
+            # более старый — полдень того дня
+            published = now if day.date() == now.date() else day.replace(hour=12)
+        offers_m = re.search(r"<span>(\d+)\s+заяв", card)
+        views_m = re.search(r"<span>(\d+)\s+просмотр", card)
+        orders.append({
+            "source": "Weblancer", "link": "https://www.weblancer.net" + title_m.group(1),
+            "title": _text(title_m.group(2)), "description": description,
+            "category": ", ".join(_text(c) for c in re.findall(r'<a[^>]*href="/freelance/[a-z0-9-]+/"[^>]*>(.*?)</a>',
+                                                                card, re.S)),
+            "budget": budget, "budget_max": budget,
+            "views": int(views_m.group(1)) if views_m else 0, "offers": int(offers_m.group(1)) if offers_m else 0,
+            "published_at": published.replace(microsecond=0).isoformat() if published else None,
+        })
+    return orders
+
+
+async def fetch_weblancer(session: aiohttp.ClientSession, pages: int = 1) -> list[dict]:
+    orders = []
+    for page in range(1, min(pages, 2) + 1):
+        try:
+            async with session.get(WL_LIST_URL, params={"page": page} if page > 1 else None, headers=HEADERS,
+                                   timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                resp.raise_for_status()
+                orders += parse_weblancer_list(await resp.text(), msk_now())
+        except (aiohttp.ClientError, TimeoutError) as e:
+            logging.warning("Weblancer, страница %s: %s", page, e)
+            break
+    return orders
+
+
+async def fetch_full(session: aiohttp.ClientSession, link: str) -> str:
+    """Полный текст заказа со страницы биржи, если в ленте он обрезан (FL.ru, freelance.ru). '' — не получилось."""
+    parser = parse_freelanceru_page if "//freelance.ru/" in link else parse_fl_page
+    try:
+        async with session.get(link, headers=HEADERS, timeout=aiohttp.ClientTimeout(total=20)) as resp:
+            resp.raise_for_status()
+            return parser(await resp.text())
+    except (aiohttp.ClientError, TimeoutError) as e:
+        logging.warning("Полный текст %s: %s", link, e)
+        return ""
+
+
+SOURCES = [("Kwork", fetch_kwork), ("FL.ru", fetch_fl), ("freelance.ru", fetch_freelanceru),
+           ("Weblancer", fetch_weblancer)]
 UNKNOWN_OFFERS = ("TG ", "Profi.ru")  # у этих источников число откликов неизвестно (FL — теперь известно из ленты)
 UNKNOWN_VIEWS = ("Profi.ru",)         # Profi не показывает и просмотры
 

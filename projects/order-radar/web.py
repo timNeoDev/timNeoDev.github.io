@@ -179,9 +179,9 @@ async def order_page(request: web.Request):
     o = db.get_order(int(request.match_info["id"]))
     if not o:
         raise web.HTTPNotFound(text="Заказ не найден — возможно, база радара была очищена")
-    if o["source"] == "FL.ru" and (o["description"] or "").endswith("..."):  # в RSS текст обрезан — догружаем
-        async with aiohttp.ClientSession() as session:
-            if full := await sources.fetch_fl_full(session, o["link"]):
+    if o["source"] in ("FL.ru", "freelance.ru") and (o["description"] or "").endswith(("...", "…")):
+        async with aiohttp.ClientSession() as session:  # в ленте текст обрезан — догружаем со страницы заказа
+            if full := await sources.fetch_full(session, o["link"]):
                 db.set_description(o["id"], full)
                 o = db.get_order(o["id"])
     now = sources.msk_now()

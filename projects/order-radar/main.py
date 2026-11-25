@@ -135,7 +135,7 @@ async def poll_once(session: aiohttp.ClientSession, bot: Bot | None, tg_client=N
         for o in reversed(orders):  # от старых к новым — уведомления придут по порядку
             matched = sources.apply_filters(o, plus, minus, min_budget, is_chat, ORDER_INTENT_WORDS)
             if o.get("cut") and notify_new and not db.link_exists(o["link"]):
-                o["description"] = await sources.fetch_fl_full(session, o["link"]) or o["description"]
+                o["description"] = await sources.fetch_full(session, o["link"]) or o["description"]
                 matched = sources.apply_filters(o, plus, minus, min_budget, is_chat, ORDER_INTENT_WORDS)
             order_id = db.upsert_order(o, matched)
             if order_id and matched:
