@@ -7,7 +7,7 @@ import aiohttp
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject, CommandStart
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 import ai
@@ -118,6 +118,31 @@ def quiet_summary_text(order_ids: list[int]) -> str | None:
     if len(orders) > 10:
         lines.append(f"\n…и ещё {len(orders) - 10} — в админке: {ADMIN_URL}/orders")
     return "\n".join(lines)
+
+
+def weekly_text() -> str:
+    """Итоги недели и сравнение с прошлой."""
+    cur, prev = db.week_stats(0), db.week_stats(7)
+
+    def trend(key: str, money: bool = False) -> str:
+        a, b = cur[key], prev[key]
+        value = rub(a) if money else str(a)
+        if a == b:
+            return f"{value} (как на прошлой неделе)"
+        arrow = "📈" if a > b else "📉"
+        diff = rub(abs(a - b)) if money else str(abs(a - b))
+        return f"{value} {arrow} {'+' if a > b else '−'}{diff}"
+
+    conversion = round(100 * cur["won"] / cur["responses"]) if cur["responses"] else 0
+    return ("📊 <b>Итоги недели</b>\n\n"
+            f"🎯 Поймано подходящих заказов: {trend('found')}\n"
+            f"✍️ Откликов: {trend('responses')}\n"
+            f"🤝 Взяли в работу: {trend('won')}" + (f" · конверсия {conversion}%" if cur["responses"] else "") + "\n"
+            f"💰 Заработано: {trend('income', money=True)}\n"
+            f"🏆 Больше всего заказов: {cur['best_source']}\n\n"
+            + ("Откликов не было — загляните в /orders, там ждут свежие заказы." if not cur["responses"] else
+               "Так держать! 💪" if cur["income"] >= prev["income"] and cur["income"] else
+               "Совет: откликайтесь на заказы с 🔥 и оценкой ИИ 7+ — у них самый высокий шанс."))
 
 
 NUDGE_TEMPLATE = ("Здравствуйте! Подскажите, пожалуйста, задача ещё актуальна? Готов приступить в ближайшее время "
@@ -297,6 +322,25 @@ async def cmd_deals(message: Message):
 @router.message(Command("remind"))
 async def cmd_remind(message: Message):
     await message.answer(reminder_text() or "Дедлайнов нет, напоминать никому не нужно 👌")
+
+
+@router.message(Command("week"))
+async def cmd_week(message: Message):
+    await message.answer(weekly_text())
+
+
+@router.message(Command("backup"))
+async def cmd_backup(message: Message):
+    await send_backup(message.bot)
+
+
+async def send_backup(bot: Bot) -> None:
+    """Копия базы радара (сделки, финансы, клиенты, заказы) — без паролей и ключей."""
+    data = db.backup_bytes()
+    await bot.send_document(ADMIN_ID, BufferedInputFile(data, filename=f"lastixparser-{date.today().isoformat()}.db"),
+                            caption=f"💾 Резервная копия базы · {len(data) // 1024} КБ\n"
+                                    "Сделки, финансы, клиенты и заказы. Ключи и cookie в копию не попадают — "
+                                    "после восстановления их нужно ввести заново.")
 
 
 @router.message(Command("digest"))

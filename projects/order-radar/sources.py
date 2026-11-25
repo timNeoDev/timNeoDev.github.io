@@ -288,15 +288,20 @@ async def fetch_fl_list(session: aiohttp.ClientSession, pages: int = 1) -> list[
     return orders
 
 
+FL_STATE = {"fallback": ""}  # почему пришлось читать RSS вместо ленты ('' — лента работает); для оповещения о поломке
+
+
 async def fetch_fl(session: aiohttp.ClientSession, pages: int = 1) -> list[dict]:
     """Заказы FL.ru: свежая лента fl.ru/projects (частая проверка — 1 страница, полная — 2).
     Если вёрстка сменилась и лента пустая — запасной путь через RSS (он опаздывает, но работает)."""
     try:
         if orders := await fetch_fl_list(session, min(pages, 2)):
+            FL_STATE["fallback"] = ""
             return orders
-        logging.warning("FL.ru: в ленте не нашлось заказов — беру RSS")
+        FL_STATE["fallback"] = "в ленте fl.ru/projects не нашлось заказов — похоже, сменилась вёрстка"
     except (aiohttp.ClientError, TimeoutError) as e:
-        logging.warning("FL.ru, лента: %s — беру RSS", e)
+        FL_STATE["fallback"] = f"лента fl.ru/projects не открывается: {e or type(e).__name__}"
+    logging.warning("FL.ru: %s — беру RSS", FL_STATE["fallback"])
     return await fetch_fl_rss(session)
 
 

@@ -581,6 +581,52 @@ def overview() -> dict:
     return s
 
 
+# ---------- Резервная копия и недельный отчёт ----------
+
+SECRET_SETTINGS = ("ai_key", "tg_api_hash", "tg_api_id")
+
+
+def backup_bytes() -> bytes:
+    """Копия базы без секретов (cookie бирж, ключ munito, ключи Telegram) — её безопасно хранить в чате.
+    После восстановления из копии секреты нужно ввести заново в настройках."""
+    import os
+    import tempfile
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        with closing(_conn()) as src, closing(sqlite3.connect(path)) as dst:
+            src.backup(dst)  # согласованная копия даже во время записи
+            dst.execute("UPDATE accounts SET secret = ''")
+            dst.execute(f"DELETE FROM settings WHERE key IN ({','.join('?' * len(SECRET_SETTINGS))})", SECRET_SETTINGS)
+            dst.commit()
+            dst.execute("VACUUM")  # стёртые секреты не остаются в свободных страницах файла
+        with open(path, "rb") as f:
+            return f.read()
+    finally:
+        os.remove(path)
+
+
+def week_stats(days_ago: int = 0) -> dict:
+    """Итоги 7 дней, закончившихся days_ago дней назад: найдено, откликов, взяли, заработано, лучшая биржа."""
+    end = f"-{days_ago} days"
+    start = f"-{days_ago + 7} days"
+    rng = "BETWEEN datetime('now', 'localtime', ?) AND datetime('now', 'localtime', ?)"
+    with closing(_conn()) as conn:
+        q = lambda sql, *a: conn.execute(sql, a).fetchone()[0] or 0
+        best = conn.execute(
+            f"SELECT source, COUNT(*) AS n FROM orders WHERE matched != '' AND created_at {rng} "
+            "GROUP BY source ORDER BY n DESC LIMIT 1", (start, end)).fetchone()
+        return {
+            "found": q(f"SELECT COUNT(*) FROM orders WHERE matched != '' AND created_at {rng}", start, end),
+            "responses": q(f"SELECT COUNT(*) FROM projects WHERE via_response = 1 AND created_at {rng}", start, end),
+            "won": q(f"SELECT COUNT(*) FROM projects WHERE stage IN {_in((*WORK_STAGES, 'paid'))} "
+                     f"AND updated_at {rng}", start, end),
+            "income": q(f"SELECT SUM(amount) FROM payments WHERE paid_on BETWEEN date('now', 'localtime', ?) "
+                        "AND date('now', 'localtime', ?)", start, end),
+            "best_source": f"{best['source']} ({best['n']})" if best else "—",
+        }
+
+
 def scam_words() -> list[str]:
     raw = get_setting("scam_words")
     words = DEFAULT_SCAM_WORDS if raw is None else raw.split(",")

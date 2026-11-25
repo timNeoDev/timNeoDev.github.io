@@ -44,13 +44,15 @@ async def collect(session: aiohttp.ClientSession, tg_client, full: bool = True
     enabled = {a["exchange"] for a in db.list_accounts() if a["enabled"]}
     if "Profi.ru" in enabled:
         try:
-            orders = await profi.fetch(session)  # сам решает, пора ли (не чаще раза в минуту)
+            orders = await profi.fetch(session)  # сам решает, пора ли (не чаще раза в 30 сек)
             if orders is not None:
                 batches.append(("Profi.ru", orders, False))
                 db.set_setting("profi_error", "")
+                health("Profi.ru", True)
         except profi.ProfiError as e:
             logging.warning("Profi.ru: %s", e)
             db.set_setting("profi_error", str(e))
+            health("Profi.ru", False, str(e))
         if err := db.get_setting("profi_error"):
             errors.append(f"Profi.ru: {err}")
     for name, fetch in sources.SOURCES:
@@ -59,11 +61,17 @@ async def collect(session: aiohttp.ClientSession, tg_client, full: bool = True
             if not orders:
                 errors.append(f"{name}: нет данных, пауза {BACKOFF_SECONDS} с")
                 _pause(name)
+            health(name, bool(orders), "биржа не отдала ни одного заказа — сайт недоступен или сменилась вёрстка")
+            if name == "FL.ru" and orders:  # заказы есть, но через запасной RSS — приходят с опозданием
+                health("FL.ru (свежая лента)", not sources.FL_STATE["fallback"],
+                       sources.FL_STATE["fallback"] + ". Пока читаю RSS — заказы приходят с опозданием до часа")
             batches.append((name, orders, False))
+    tg_tried = tg_ok = 0
     for src in db.list_tg_sources(enabled_only=True):  # ошибки каналов видны в настройках, не в общей плашке
         name, is_chat = src["username"], src["kind"] == "chat"
         if _paused(f"tg:{name}"):
             continue
+        tg_tried += 1
         try:
             if tg_client:  # подключён аккаунт для парсинга — читаем через него (видит и закрытые каналы, и чаты)
                 orders = await tg_user.fetch(tg_client, name)
@@ -73,10 +81,47 @@ async def collect(session: aiohttp.ClientSession, tg_client, full: bool = True
                 orders = await sources.fetch_tg_channel(session, name)
             db.set_tg_source(name, last_error="", last_count=len(orders))
             batches.append((f"TG @{name}", orders, is_chat))
+            tg_ok += 1
         except ValueError as e:
             db.set_tg_source(name, last_error=str(e)[:200])
             _pause(f"tg:{name}")
+    if tg_tried:  # один упавший канал — не повод тревожить (видно в настройках); тревога — если не читается ни один
+        health("Telegram-каналы", tg_ok > 0, "ни один канал не читается — t.me недоступен или изменился")
     return batches, errors
+
+
+# ---------- Здоровье источников: «сломался» после 3 неудач подряд, «починился» — при первом успехе ----------
+
+HEALTH_FAILS = 3
+_fails: dict[str, int] = {}
+_down: dict[str, str] = {}               # источник → причина, о которой уже предупредили
+_health_events: list[tuple[str, bool, str]] = []  # (источник, починился?, причина) — ждут отправки в бот
+
+
+def health(name: str, ok: bool, reason: str = "") -> None:
+    if ok:
+        _fails[name] = 0
+        if name in _down:
+            _down.pop(name)
+            _health_events.append((name, True, ""))
+        return
+    _fails[name] = _fails.get(name, 0) + 1
+    if _fails[name] >= HEALTH_FAILS and name not in _down:
+        _down[name] = reason
+        _health_events.append((name, False, reason))
+
+
+async def send_health(bot: Bot) -> None:
+    """Оповещения о поломке и починке источников (в тихие часы ждут утра)."""
+    if not _health_events or quiet_now():
+        return
+    events = _health_events[:]
+    _health_events.clear()
+    for name, ok, reason in events:
+        text = (f"✅ <b>{name}</b> снова работает — заказы приходят как обычно." if ok else
+                f"⚠️ <b>{name}: перестал работать</b>\n\n{reason}.\n\nНичего делать не нужно — радар продолжает "
+                f"пробовать и сообщит, когда починится. Если долго не чинится — напишите разработчику.")
+        await bot.send_message(ADMIN_ID, text, disable_web_page_preview=True)
 
 
 async def poll_once(session: aiohttp.ClientSession, bot: Bot | None, tg_client=None, full: bool = True) -> int:
@@ -99,6 +144,8 @@ async def poll_once(session: aiohttp.ClientSession, bot: Bot | None, tg_client=N
                     await deliver(session, bot, order_id)
     db.set_setting("last_poll", datetime.now().strftime("%d.%m %H:%M:%S"))
     db.set_setting("last_error", "; ".join(errors))
+    if bot:
+        await send_health(bot)
     return found
 
 
@@ -181,6 +228,17 @@ async def daily_messages(bot: Bot) -> None:
             db.set_setting(key, today)
             if text := make_text():
                 await bot.send_message(ADMIN_ID, text, disable_web_page_preview=True)
+    # Раз в неделю (понедельник, утро) — итоги недели; каждый вечер — копия базы
+    week = f"{now.isocalendar().year}-{now.isocalendar().week}"
+    if now.weekday() == 0 and now.hour >= REMINDER_HOUR and db.get_setting("last_weekly") != week:
+        db.set_setting("last_weekly", week)
+        await bot.send_message(ADMIN_ID, tg.weekly_text(), disable_web_page_preview=True)
+    if now.hour >= DIGEST_HOUR and db.get_setting("last_backup") != today:
+        db.set_setting("last_backup", today)
+        try:
+            await tg.send_backup(bot)
+        except Exception:
+            logging.exception("Не удалось отправить резервную копию базы")
     # Тихие часы закончились — сводка того, что пришло ночью
     if queue := [int(x) for x in (db.get_setting("quiet_queue") or "").split(",") if x.isdigit()]:
         db.set_setting("quiet_queue", "")

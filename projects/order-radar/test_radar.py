@@ -547,4 +547,29 @@ assert not db.nudge_due()
 db.save_ai(scam_id, {"ai_score": 80})
 top = [r for r in db.ai_stats() if r["bucket"] == "8–10"]
 assert top and top[0]["responses"] >= 1 and 0 <= top[0]["conversion"] <= 100
+
+# --- здоровье источников: тревога после 3 неудач подряд, «починился» — при первом успехе ---
+main._health_events.clear()
+for _ in range(2):
+    main.health("FL.ru", False, "вёрстка")
+assert not main._health_events                                                       # 2 сбоя — ещё не тревога
+main.health("FL.ru", False, "вёрстка"); main.health("FL.ru", False, "вёрстка")
+assert main._health_events == [("FL.ru", False, "вёрстка")]                         # одна тревога, без повторов
+main.health("FL.ru", True)
+assert main._health_events[-1] == ("FL.ru", True, "") and "FL.ru" not in main._down
+
+# --- резервная копия без секретов и недельный отчёт ---
+import sqlite3 as _sq  # noqa: E402
+db.set_setting("ai_key", "sk-secret-123"); db.connect_account("Profi.ru", "+7 *** 89", "prfr_bo_tkn=SECRET")
+raw = db.backup_bytes()
+assert raw[:15] == b"SQLite format 3" and b"SECRET" not in raw and b"sk-secret-123" not in raw
+tmp_db = os.path.join(tempfile.mkdtemp(), "b.db")
+open(tmp_db, "wb").write(raw)
+with _sq.connect(tmp_db) as conn:
+    assert conn.execute("SELECT COUNT(*) FROM orders").fetchone()[0] > 0               # заказы в копии есть
+    assert conn.execute("SELECT secret FROM accounts WHERE exchange = 'Profi.ru'").fetchone()[0] == ""
+assert db.get_setting("ai_key") == "sk-secret-123"                                    # рабочая база не тронута
+w = db.week_stats()
+assert w["found"] >= 1 and w["responses"] >= 1 and set(w) == {"found", "responses", "won", "income", "best_source"}
+assert "Итоги недели" in tgbot.weekly_text() and "Поймано подходящих заказов" in tgbot.weekly_text()
 print("all OK")
